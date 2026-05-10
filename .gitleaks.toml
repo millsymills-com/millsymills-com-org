@@ -1,10 +1,16 @@
 [extend]
 useDefault = true
 
+# Path allowlists are scoped narrowly. The two bootstrap output files contain
+# AWS account IDs, IAM role ARNs, KMS key ARNs, GitHub App IDs, and installation
+# IDs — non-secret, but they match gitleaks' default `aws-account-id` and ARN
+# rules and would otherwise block every commit. Real secrets (AWS access keys,
+# GitHub App PEMs, PATs) live in AWS Secrets Manager and never appear in these
+# files; the bootstrap script does not write them here.
 [allowlist]
 description = "Allowlist for project-local config"
 paths = [
-    '''docs/.*''',
-    '''bootstrap/aws-output\.json''',
-    '''bootstrap/github-output\.json''',
+    '''docs/.*\.md$''',
+    '''bootstrap/aws-output\.json$''',
+    '''bootstrap/github-output\.json$''',
 ]
