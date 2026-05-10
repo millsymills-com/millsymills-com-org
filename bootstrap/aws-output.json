@@ -1,0 +1,17 @@
+{
+  "account_id": "025507317036",
+  "region": "us-west-1",
+  "state_bucket": "tfstate-millsymills-025507317036",
+  "kms_key_alias": "alias/tfstate-millsymills",
+  "kms_key_arn": "arn:aws:kms:us-west-1:025507317036:key/329d07cd-5f4e-4da9-bbc7-6b498ee6b004",
+  "oidc_provider_arn": "arn:aws:iam::025507317036:oidc-provider/token.actions.githubusercontent.com",
+  "roles": {
+    "plan":  "arn:aws:iam::025507317036:role/gha-millsymills-org-tofu-plan",
+    "apply": "arn:aws:iam::025507317036:role/gha-millsymills-org-tofu-apply",
+    "drift": "arn:aws:iam::025507317036:role/gha-millsymills-org-tofu-drift"
+  },
+  "secrets": {
+    "writer_app_key": "github-app-key/millsymills-org-bot-writer",
+    "reader_app_key": "github-app-key/millsymills-org-bot-reader"
+  }
+}
