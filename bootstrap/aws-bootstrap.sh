@@ -95,4 +95,124 @@ create_state_bucket() {
 
 create_state_bucket
 
+# ---------------------------------------------------------------------
+# Phase 1.2: KMS key for state encryption
+# ---------------------------------------------------------------------
+
+KMS_ALIAS="${KMS_ALIAS:-alias/tfstate-millsymills}"
+
+create_state_kms_key() {
+  log "would create KMS key: ${KMS_ALIAS}"
+  log "  - annual rotation: enabled"
+  log "  - deletion window: 30 days"
+  log "  - admin: account root + caller IAM identity (break-glass)"
+  log "would apply bucket policy on ${STATE_BUCKET}: deny non-TLS, deny non-KMS writes"
+
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    return 0
+  fi
+
+  assert_aws_admin
+  ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+  CALLER_ARN=$(aws sts get-caller-identity --query Arn --output text)
+
+  EXISTING_KEY_ID=$(aws kms list-aliases \
+    --query "Aliases[?AliasName=='${KMS_ALIAS}'].TargetKeyId | [0]" \
+    --output text)
+
+  if [[ -n "${EXISTING_KEY_ID}" && "${EXISTING_KEY_ID}" != "None" ]]; then
+    log "KMS key ${KMS_ALIAS} already exists (id ${EXISTING_KEY_ID}); skipping create"
+    KMS_KEY_ID="${EXISTING_KEY_ID}"
+  else
+    KEY_POLICY=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RootAccountAccess",
+      "Effect": "Allow",
+      "Principal": {"AWS": "arn:aws:iam::${ACCOUNT_ID}:root"},
+      "Action": "kms:*",
+      "Resource": "*"
+    },
+    {
+      "Sid": "BreakGlassAdmin",
+      "Effect": "Allow",
+      "Principal": {"AWS": "${CALLER_ARN}"},
+      "Action": "kms:*",
+      "Resource": "*"
+    }
+  ]
+}
+EOF
+)
+    KMS_KEY_ID=$(aws kms create-key \
+      --description "Tofu state encryption for millsymills-com-org" \
+      --policy "${KEY_POLICY}" \
+      --query KeyMetadata.KeyId --output text)
+    aws kms create-alias --alias-name "${KMS_ALIAS}" --target-key-id "${KMS_KEY_ID}"
+    aws kms enable-key-rotation --key-id "${KMS_KEY_ID}"
+    log "created KMS key ${KMS_KEY_ID} aliased ${KMS_ALIAS}"
+  fi
+
+  KMS_KEY_ARN=$(aws kms describe-key --key-id "${KMS_KEY_ID}" --query KeyMetadata.Arn --output text)
+
+  aws s3api put-bucket-encryption --bucket "${STATE_BUCKET}" \
+    --server-side-encryption-configuration "{
+      \"Rules\": [{
+        \"ApplyServerSideEncryptionByDefault\": {
+          \"SSEAlgorithm\": \"aws:kms\",
+          \"KMSMasterKeyID\": \"${KMS_KEY_ARN}\"
+        },
+        \"BucketKeyEnabled\": true
+      }]
+    }"
+
+  log "applying bucket policy: deny non-TLS, deny non-KMS"
+  BUCKET_POLICY=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyNonTLS",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::${STATE_BUCKET}",
+        "arn:aws:s3:::${STATE_BUCKET}/*"
+      ],
+      "Condition": {"Bool": {"aws:SecureTransport": "false"}}
+    },
+    {
+      "Sid": "DenyNonKMSEncryptedWrites",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::${STATE_BUCKET}/*",
+      "Condition": {
+        "StringNotEquals": {"s3:x-amz-server-side-encryption": "aws:kms"}
+      }
+    },
+    {
+      "Sid": "DenyWrongKMSKey",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::${STATE_BUCKET}/*",
+      "Condition": {
+        "StringNotEqualsIfExists": {
+          "s3:x-amz-server-side-encryption-aws-kms-key-id": "${KMS_KEY_ARN}"
+        }
+      }
+    }
+  ]
+}
+EOF
+)
+  aws s3api put-bucket-policy --bucket "${STATE_BUCKET}" --policy "${BUCKET_POLICY}"
+}
+
+create_state_kms_key
+
 log "bootstrap complete (skeleton only)"
