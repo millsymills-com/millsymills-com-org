@@ -18,12 +18,25 @@ repos:
     hooks:
       - id: shellcheck
 
-  - repo: https://github.com/antonbabenko/pre-commit-terraform
-    rev: v1.96.1
+  # We use OpenTofu, not HashiCorp Terraform. pre-commit-terraform's hooks
+  # hardcode the `terraform` binary and don't fully understand OpenTofu's
+  # state/lock-file format. Replaced with local hooks that invoke `tofu`
+  # directly. Modules cover all .tf files; tflint runs recursively.
+  - repo: local
     hooks:
-      - id: terraform_fmt
-      - id: terraform_validate
-      - id: terraform_tflint
+      - id: tofu-fmt
+        name: tofu fmt
+        entry: tofu fmt -check -recursive
+        language: system
+        files: \.tf$
+        pass_filenames: false
+
+      - id: tflint
+        name: tflint
+        entry: tflint --recursive --format=compact
+        language: system
+        files: \.tf$
+        pass_filenames: false
 
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.7

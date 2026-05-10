@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars (gitignored) and fill in values from bootstrap/github-output.json.
+#
+# Locally, write the PEM to a 0600 file and point github_app_pem_file at it:
+#   PEM=$(mktemp); chmod 600 "${PEM}"
+#   aws secretsmanager get-secret-value \
+#     --region us-west-1 \
+#     --secret-id github-app-key/millsymills-org-bot-writer \
+#     --query SecretString --output text > "${PEM}"
+#   export TF_VAR_github_app_pem_file="${PEM}"
+#
+# Then `tofu init && tofu plan`. After: `shred -u "${PEM}"`.
+
+github_app_id              = "<from bootstrap/github-output.json (writer for apply, reader for plan-only)>"
+github_app_installation_id = "<from bootstrap/github-output.json>"
+# github_app_pem_file is set via TF_VAR_github_app_pem_file env var — do NOT put the path here in vars.
