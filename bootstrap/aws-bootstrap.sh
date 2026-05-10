@@ -395,4 +395,70 @@ create_role "gha-millsymills-org-tofu-plan"  "tofu-plan"  "${PLAN_EXTRA}"
 create_role "gha-millsymills-org-tofu-apply" "tofu-apply" "${APPLY_EXTRA}"
 create_role "gha-millsymills-org-tofu-drift" "tofu-drift" "${DRIFT_EXTRA}"
 
-log "bootstrap complete (skeleton only)"
+# ---------------------------------------------------------------------
+# Phase 1.4: Secrets Manager placeholders for GitHub App keys
+# ---------------------------------------------------------------------
+
+create_app_key_secret() {
+  local secret_name="$1"
+  log "would create Secrets Manager secret: ${secret_name} (placeholder)"
+
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    return 0
+  fi
+
+  if aws secretsmanager describe-secret --secret-id "${secret_name}" >/dev/null 2>&1; then
+    log "secret ${secret_name} already exists; skipping create"
+    return 0
+  fi
+
+  aws secretsmanager create-secret \
+    --name "${secret_name}" \
+    --description "GitHub App private key (PEM); populate manually after App creation" \
+    --kms-key-id "${KMS_KEY_ARN}" \
+    --secret-string '{"placeholder": "populate after GitHub App creation"}' \
+    >/dev/null
+}
+
+create_app_key_secret "github-app-key/millsymills-org-bot-writer"
+create_app_key_secret "github-app-key/millsymills-org-bot-reader"
+
+# ---------------------------------------------------------------------
+# Phase 1.5: Write aws-output.json (committed; non-secret)
+# ---------------------------------------------------------------------
+
+write_output_json() {
+  local output_file="${SCRIPT_DIR}/aws-output.json"
+  log "would write aws-output.json to ${output_file}"
+
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    return 0
+  fi
+
+  ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+  cat > "${output_file}" <<EOF
+{
+  "account_id": "${ACCOUNT_ID}",
+  "region": "${AWS_REGION}",
+  "state_bucket": "${STATE_BUCKET}",
+  "kms_key_alias": "${KMS_ALIAS}",
+  "kms_key_arn": "${KMS_KEY_ARN}",
+  "oidc_provider_arn": "${OIDC_PROVIDER_ARN}",
+  "roles": {
+    "plan":  "arn:aws:iam::${ACCOUNT_ID}:role/gha-millsymills-org-tofu-plan",
+    "apply": "arn:aws:iam::${ACCOUNT_ID}:role/gha-millsymills-org-tofu-apply",
+    "drift": "arn:aws:iam::${ACCOUNT_ID}:role/gha-millsymills-org-tofu-drift"
+  },
+  "secrets": {
+    "writer_app_key": "github-app-key/millsymills-org-bot-writer",
+    "reader_app_key": "github-app-key/millsymills-org-bot-reader"
+  }
+}
+EOF
+  log "wrote ${output_file}"
+}
+
+write_output_json
+
+log "AWS bootstrap complete. Next: follow bootstrap/github-bootstrap.md"
