@@ -1950,12 +1950,30 @@ allow_merge_commit=false, web_commit_signoff_required=true, vulnerability_alerts
 
 - [ ] **Step 12: Verify management repo is NOT in state under module.existing**
 
+`tofu state list` prints resource ADDRESSES (like `module.existing["repo1"].github_repository.this`),
+not the `name` attributes of those resources. So a naive `grep millsymills-com-org`
+would miss the bug it's trying to catch — namely, the management repo accidentally
+imported under a generic key like `repo1`.
+
+Inspect each module instance's actual `name` attribute:
+
 ```bash
-tofu state list | grep millsymills-com-org
+set -euo pipefail
+fail=0
+for addr in $(tofu state list | grep -E '^module\.existing\["[^"]+"\]\.github_repository\.this$'); do
+  name=$(tofu state show "${addr}" | sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*"\(.*\)"$/\1/p' | head -n 1)
+  if [[ "${name}" == "millsymills-com-org" ]]; then
+    echo "FAIL: management repo found at ${addr}"
+    fail=1
+  fi
+done
+[[ "$fail" -eq 0 ]] && echo "OK: management repo not in module.existing"
+exit "$fail"
 ```
 
-Expected: empty (the management repo is imported in Task 16, not here). If it appears,
-remove it from `local.existing_repos` and re-import; it must not be in two places.
+Expected: `OK: management repo not in module.existing` and exit 0. If FAIL, the
+management repo was incorrectly imported here; remove its entry from
+`local.existing_repos` and `tofu state rm` the wrong address before retrying.
 
 - [ ] **Step 13: Remove `repos_imports.tf`**
 
@@ -2356,15 +2374,61 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  validate:
+    name: validate
+    # Runs on EVERY PR including fork PRs. Uncredentialed: no AWS, no App key,
+    # no provider API calls. This is the required check; it always actually
+    # executes (never skipped), so a fork PR cannot bypass validation by
+    # exploiting GitHub's "skipped == passing" semantics.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@<PIN-SHA>
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            objects.githubusercontent.com:443
+            registry.opentofu.org:443
+
+      - name: Checkout
+        uses: actions/checkout@<PIN-SHA>
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@<PIN-SHA>
+        with:
+          tofu_version: 1.10.3
+
+      - name: Setup tflint
+        uses: terraform-linters/setup-tflint@<PIN-SHA>
+        with:
+          tflint_version: v0.55.1
+
+      - name: tofu fmt -check
+        run: tofu fmt -check -recursive
+
+      - name: tofu init (no backend)
+        run: tofu init -backend=false -input=false
+
+      - name: tofu validate
+        run: tofu validate
+
+      - name: tflint
+        run: |
+          tflint --init
+          tflint --recursive --format=compact
+
   plan:
     name: plan
-    # Gate credentialed plan to internal PRs only. Fork PRs would otherwise still
-    # get an OIDC token whose immutable claims (repository_id, repository_owner_id,
-    # job_workflow_ref) describe the BASE repo and base workflow file — those
-    # claims do not distinguish a fork PR from an internal PR. The only reliable
-    # way to keep AWS creds and the reader App key out of fork-PR-controlled code
-    # is to skip the credentialed job entirely on fork PRs.
+    # Credentialed plan: runs only on INTERNAL PRs. Fork PRs skip this job; their
+    # required check comes from `validate` above. The OIDC immutable claims
+    # describe the BASE workflow file, so they don't distinguish a fork PR run
+    # from an internal PR run — the if: guard is the only reliable way to keep
+    # AWS creds and the reader App key out of fork-PR-controlled code.
     if: github.event.pull_request.head.repo.full_name == github.repository
+    needs: validate
     runs-on: ubuntu-24.04
     environment: tofu-plan
     timeout-minutes: 15
@@ -2426,22 +2490,6 @@ jobs:
 
       - name: tofu init
         run: tofu init -input=false
-
-      - name: tofu fmt
-        run: tofu fmt -check -recursive
-
-      - name: tofu validate
-        run: tofu validate
-
-      - name: tflint
-        run: |
-          tflint --init
-          tflint --recursive --format=compact
-
-      - name: zizmor on workflows
-        uses: woodruffw/zizmor-action@<PIN-SHA>  # v0.1.0
-        with:
-          inputs: ".github/workflows/"
 
       - name: tofu plan
         id: plan
@@ -3250,11 +3298,18 @@ resource "github_repository_ruleset" "management_repo_checks" {
     required_status_checks {
       strict_required_status_checks_policy = true
 
-      required_check { context = "tofu / plan" }
+      # Required checks must come from JOBS THAT ALWAYS RUN (not jobs that can
+      # be skipped by an `if:` guard). GitHub treats a skipped check-run as
+      # passing for required-check purposes, so a fork PR could merge with a
+      # skipped check.
+      required_check { context = "tofu / validate" }          # tofu-plan.yml validate job (uncredentialed, always runs)
       required_check { context = "zizmor / zizmor" }
       required_check { context = "gitleaks / gitleaks" }
       required_check { context = "actionlint / actionlint" }
       required_check { context = "codeql / analyze (actions)" }
+      # NOT required: `tofu / plan` is gated to internal PRs only and would
+      # report "skipped" on fork PRs (which counts as passing — bypassing the
+      # protection). The validate job is the load-bearing required check.
     }
   }
 }
@@ -3549,6 +3604,15 @@ Type / name consistency:
 ---
 
 ## Validation changelog
+
+### 2026-05-09 — Round 4: verification spot-check on round-3 fixes
+
+| # | Finding | Source | Resolution |
+|---|---|---|---|
+| 16 | Skipped jobs satisfy required checks. The round-3 fix gated the credentialed plan job with `if: github.event.pull_request.head.repo.full_name == github.repository`, but GitHub treats a skipped check-run as passing for required-check purposes. A fork PR could therefore merge with no validation. | codex:review v4 | Split `tofu-plan.yml` into two jobs: `validate` (uncredentialed, runs on every PR including forks — does fmt/init/validate/tflint without provider auth) and `plan` (credentialed, internal PRs only). Required check changed to `tofu / validate` (always runs, never skipped). `tofu / plan` is no longer required; it's informational. |
+| 17 | State-verification command in Task 13 Step 12 (`tofu state list \| grep millsymills-com-org`) searches resource ADDRESSES not repo names. If the management repo were accidentally imported under key `repo1`, grep returns empty and the check falsely passes. | codex:review v4 | Replaced with a loop that calls `tofu state show` on each `module.existing[*].github_repository.this` address and parses out the actual `name` attribute, comparing each to `millsymills-com-org`. Exits non-zero if found anywhere. |
+
+---
 
 ### 2026-05-09 — Round 3: post-fix verification pass
 
