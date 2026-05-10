@@ -24,5 +24,13 @@ See `variables.tf`.
 
 ## Tests
 
-`tofu test -test-directory=tests` exercises the resource attributes via plan-time
-assertions; no real API calls are made (mocked at provider level).
+The tests run from the **project root**, not from inside the module. The module
+takes its inputs from the `module "org_baseline"` call in the root `org.tf`, so
+the test file does not declare its own `variables {}` block.
+
+```sh
+tofu test -test-directory=modules/org-baseline/tests
+```
+
+Assertions are plan-time only, with the github provider mocked
+(`mock_provider "github"`) — no real API calls are made.

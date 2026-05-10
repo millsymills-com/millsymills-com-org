@@ -43,7 +43,7 @@ log "starting AWS bootstrap (dry-run=${DRY_RUN}, force=${FORCE})"
 # Phase 1.1: S3 state bucket
 # ---------------------------------------------------------------------
 
-AWS_REGION="${AWS_REGION:-us-east-1}"
+AWS_REGION="${AWS_REGION:-us-west-1}"
 # Pin every aws CLI call to AWS_REGION. Without this, only commands that pass
 # `--region` explicitly land in the right region; anything else inherits the
 # user's CLI default, which can cause cross-region S3+KMS mismatches.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 
 setup() {
-  export AWS_REGION="us-east-1"
+  export AWS_REGION="us-west-1"
   export STATE_BUCKET="tfstate-millsymills-test"
 }
 
