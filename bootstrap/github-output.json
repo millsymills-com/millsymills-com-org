@@ -1,0 +1,17 @@
+{
+  "org": "millsymills-com",
+  "org_id": 283017149,
+  "management_repo": "millsymills-com-org",
+  "management_repo_id": 1234310882,
+  "writer_app": {
+    "name": "millsymills-org-bot-writer",
+    "app_id": 3663090,
+    "installation_id": 131053900
+  },
+  "reader_app": {
+    "name": "millsymills-org-bot-reader",
+    "app_id": 3663135,
+    "installation_id": 131054836
+  },
+  "oidc_subject_claim_keys": ["repo", "environment"]
+}
