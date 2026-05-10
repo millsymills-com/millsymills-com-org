@@ -8,9 +8,11 @@ GitHub Actions defaults the OIDC `sub` claim to `repo:OWNER/REPO:ref:REFNAME`.
 Customize it so `sub` includes the deployment environment.
 
 ```bash
+# Quote the array-style args — zsh treats `[]` as a glob and errors
+# with "no matches found" if they're unquoted.
 gh api -X PUT /orgs/millsymills-com/actions/oidc/customization/sub \
-  -f include_claim_keys[]=repo \
-  -f include_claim_keys[]=environment
+  -f 'include_claim_keys[]=repo' \
+  -f 'include_claim_keys[]=environment'
 ```
 
 Verify:
