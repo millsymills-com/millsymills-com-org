@@ -23,7 +23,11 @@ resource "github_organization_settings" "this" {
   dependency_graph_enabled_for_new_repositories                = true
   secret_scanning_enabled_for_new_repositories                 = true
   secret_scanning_push_protection_enabled_for_new_repositories = true
-  advanced_security_enabled_for_new_repositories               = true
+  # Advanced Security is a paid GHAS product (Enterprise Cloud + per-seat licenses).
+  # On Free plans, GitHub silently ignores a `true` here. Public repos still get
+  # secret scanning, push protection, and dependency review for free — those are
+  # the spec's actual security signals; the `advanced_security_*` flag is not.
+  advanced_security_enabled_for_new_repositories = false
 }
 
 # Four org settings the integrations/github v6 provider does not surface via
