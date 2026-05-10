@@ -1,0 +1,26 @@
+# Tofu
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+.terraform/
+.terraform.lock.hcl.local
+crash.log
+
+# Secrets / local
+*.pem
+*.key
+.env
+.env.*
+bootstrap/*.local.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Tofu plan artifacts
+tfplan
+*.tfplan
+plan.out

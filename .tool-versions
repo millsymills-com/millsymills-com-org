@@ -1,0 +1,4 @@
+opentofu 1.10.3
+tflint 0.55.1
+shellcheck 0.10.0
+bats 1.11.1

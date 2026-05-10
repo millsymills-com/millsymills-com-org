@@ -1,0 +1,10 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowlist for project-local config"
+paths = [
+    '''docs/.*''',
+    '''bootstrap/aws-output\.json''',
+    '''bootstrap/github-output\.json''',
+]
