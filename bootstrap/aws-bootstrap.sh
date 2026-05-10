@@ -45,6 +45,10 @@ log "starting AWS bootstrap (dry-run=${DRY_RUN}, force=${FORCE})"
 
 STATE_BUCKET="${STATE_BUCKET:-tfstate-millsymills-com}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
+# Pin every aws CLI call to AWS_REGION. Without this, only commands that pass
+# `--region` explicitly land in the right region; anything else inherits the
+# user's CLI default, which can cause cross-region S3+KMS mismatches.
+export AWS_DEFAULT_REGION="${AWS_REGION}"
 
 create_state_bucket() {
   log "would create S3 bucket: ${STATE_BUCKET} (region ${AWS_REGION})"
