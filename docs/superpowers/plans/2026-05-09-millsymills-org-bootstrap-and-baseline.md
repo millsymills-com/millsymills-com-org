@@ -1851,21 +1851,30 @@ run "defaults_are_safe" {
 }
 ```
 
-- [ ] **Step 6: Create `repos/_existing.tf` declaring module instances for each existing repo**
+- [ ] **Step 6: Create `repos_existing.tf` (root, not in subdirectory) declaring module instances for each existing repo**
+
+(Note: the file lives at the **repo root** alongside `org.tf`, NOT inside `./repos/`.
+OpenTofu only loads `.tf` files from the working directory, not subdirectories, so
+files placed in `./repos/` would be silently ignored unless that subdirectory were
+declared as a module. Keeping these at root is the simplest correct setup.)
 
 ```hcl
 locals {
+  # NOTE: explicitly exclude the management repo "millsymills-com-org" — it is
+  # imported in Task 16 directly into `module.management_repo`. Letting it land
+  # here would cause a state-conflict error or, worse, a double-managed repo.
   existing_repos = {
     repo1     = { name = "<existing-public-repo-1-name>",  visibility = "public" }
     repo2     = { name = "<existing-public-repo-2-name>",  visibility = "public" }
     repo3     = { name = "<existing-public-repo-3-name>",  visibility = "public" }
     repo4     = { name = "<existing-public-repo-4-name>",  visibility = "public" }
     repo_priv = { name = "<existing-private-repo-1-name>", visibility = "private" }
+    # DO NOT add millsymills-com-org here.
   }
 }
 
 module "existing" {
-  source   = "../modules/repo-baseline"
+  source   = "./modules/repo-baseline"
   for_each = local.existing_repos
 
   name       = each.value.name
@@ -1873,13 +1882,14 @@ module "existing" {
 }
 ```
 
-(Replace `<existing-...>` placeholders with the actual repo names from
-`gh repo list millsymills-com --limit 100 --json name,visibility`.)
+Replace `<existing-...>` placeholders with the actual repo names from
+`gh repo list millsymills-com --limit 100 --json name,visibility | jq -r '.[] | select(.name != "millsymills-com-org") | .name'`.
 
-- [ ] **Step 7: Create `repos/_imports.tf` with module-aware import blocks**
+- [ ] **Step 7: Create `repos_imports.tf` (root) with module-aware import blocks**
 
 ```hcl
 # Import existing repos directly into module instances. No placeholder resources.
+# This file is removed after import (Step 13).
 import {
   to = module.existing["repo1"].github_repository.this
   id = "<existing-public-repo-1-name>"
@@ -1938,21 +1948,30 @@ done
 Expected: every repo has has_wiki=false, has_projects=false, delete_branch_on_merge=true,
 allow_merge_commit=false, web_commit_signoff_required=true, vulnerability_alerts=true.
 
-- [ ] **Step 12: Remove `repos/_imports.tf`**
+- [ ] **Step 12: Verify management repo is NOT in state under module.existing**
 
 ```bash
-rm repos/_imports.tf
+tofu state list | grep millsymills-com-org
 ```
 
-- [ ] **Step 13: Confirm no diff after removal**
+Expected: empty (the management repo is imported in Task 16, not here). If it appears,
+remove it from `local.existing_repos` and re-import; it must not be in two places.
+
+- [ ] **Step 13: Remove `repos_imports.tf`**
+
+```bash
+rm repos_imports.tf
+```
+
+- [ ] **Step 14: Confirm no diff after removal**
 
 Run: `tofu plan`
 Expected: `No changes`.
 
-- [ ] **Step 14: Commit**
+- [ ] **Step 15: Commit**
 
 ```bash
-git add modules/repo-baseline/ repos/_existing.tf
+git add modules/repo-baseline/ repos_existing.tf
 git commit -m "feat(tofu): repo-baseline module; import existing repos directly into module"
 ```
 
@@ -2067,7 +2086,7 @@ module "ruleset_default_branch" {
   org_name = var.org_name
   # No required_status_checks here. The org-wide ruleset applies to ALL repos,
   # most of which won't run tofu/codeql/etc. workflows. Per-repo required checks
-  # for the management repo are configured in repos/_meta.tf (Task 16).
+  # for the management repo are configured in repos_meta.tf (Task 16a/16b).
   required_status_checks          = []
   required_approving_review_count = 0  # solo-dev caveat (Section 4 of spec)
 }
@@ -2188,12 +2207,17 @@ git commit -m "feat(tofu): tag-protection ruleset on v* tags"
 
 ---
 
-### Task 16: Self-manage `millsymills-com-org` (this repo) via Tofu
+### Task 16a: Self-manage `millsymills-com-org` repo + create deployment environments
 
 **Files:**
-- Create: `repos/_meta.tf`
+- Create: `repos_meta.tf` (root)
 
-- [ ] **Step 1: Write `repos/_meta.tf`**
+This task imports the management repo and creates the OIDC deployment environments,
+but does NOT yet apply the per-repo required-status-checks ruleset. That happens in
+Task 16b after CI is verified end-to-end. Otherwise PRs would be blocked by required
+checks that don't exist yet.
+
+- [ ] **Step 1: Write `repos_meta.tf` (root)**
 
 ```hcl
 import {
@@ -2211,39 +2235,10 @@ module "management_repo" {
   homepage_url = "https://github.com/millsymills-com"
 }
 
-# Per-repo ruleset adding management-repo-specific required status checks on top
-# of the org-wide default-branch-protection ruleset.
-#
-# IMPORTANT: Apply this resource AFTER the workflows in Tasks 18-20, 24 are
-# pushed and have produced at least one check run on a branch — otherwise the
-# required check contexts won't have been observed by GitHub yet, and PRs will
-# stall on "Expected — Waiting for status to be reported".
-resource "github_repository_ruleset" "management_repo_checks" {
-  name        = "management-repo-checks"
-  repository  = module.management_repo.name
-  target      = "branch"
-  enforcement = "active"
-
-  conditions {
-    ref_name {
-      include = ["~DEFAULT_BRANCH"]
-      exclude = []
-    }
-  }
-
-  rules {
-    required_status_checks {
-      strict_required_status_checks_policy = true
-
-      required_check { context = "tofu / plan" }
-      required_check { context = "zizmor / zizmor" }
-      required_check { context = "gitleaks / gitleaks" }
-      required_check { context = "actionlint / actionlint" }
-      required_check { context = "codeql / analyze (actions)" }
-      required_check { context = "scorecard / analysis" }
-    }
-  }
-}
+# Per-repo ruleset adding management-repo-specific required status checks. This
+# resource is intentionally NOT in this file at Task 16a; it is added in Task 16b
+# (after Task 24 + first verified CI run). Adding it here would block every PR
+# because the required check contexts wouldn't yet exist in GitHub's history.
 
 # Deployment environments for OIDC pinning
 resource "github_repository_environment" "tofu_plan" {
@@ -2282,7 +2277,7 @@ Expected: `tofu-plan`, `tofu-apply`, `tofu-drift`.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add repos/_meta.tf
+git add repos_meta.tf
 git commit -m "feat(tofu): self-manage management repo and create OIDC environments"
 ```
 
@@ -2348,7 +2343,7 @@ on:
       - "**/*.tfvars.example"
       - ".github/workflows/tofu-*.yml"
       - "modules/**"
-      - "repos/**"
+      - "repos_*.tf"
       - "org.tf"
 
 permissions:
@@ -2363,6 +2358,13 @@ concurrency:
 jobs:
   plan:
     name: plan
+    # Gate credentialed plan to internal PRs only. Fork PRs would otherwise still
+    # get an OIDC token whose immutable claims (repository_id, repository_owner_id,
+    # job_workflow_ref) describe the BASE repo and base workflow file — those
+    # claims do not distinguish a fork PR from an internal PR. The only reliable
+    # way to keep AWS creds and the reader App key out of fork-PR-controlled code
+    # is to skip the credentialed job entirely on fork PRs.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     environment: tofu-plan
     timeout-minutes: 15
@@ -2371,7 +2373,10 @@ jobs:
       - name: Harden runner
         uses: step-security/harden-runner@<PIN-SHA>  # v2.10.4
         with:
-          egress-policy: audit
+          # block, not audit. Audit-only would let a malicious PR exfiltrate the
+          # plan-role credentials or the reader App PEM by simply curl'ing them
+          # out before the audit log is shipped. Block enforces the allowlist.
+          egress-policy: block
           allowed-endpoints: >
             api.github.com:443
             github.com:443
@@ -2511,7 +2516,7 @@ on:
       - "**/*.tf"
       - ".github/workflows/tofu-*.yml"
       - "modules/**"
-      - "repos/**"
+      - "repos_*.tf"
       - "org.tf"
   workflow_dispatch:
 
@@ -2534,7 +2539,7 @@ jobs:
       - name: Harden runner
         uses: step-security/harden-runner@<PIN-SHA>
         with:
-          egress-policy: audit
+          egress-policy: block
           allowed-endpoints: >
             api.github.com:443
             github.com:443
@@ -2645,7 +2650,7 @@ jobs:
       - name: Harden runner
         uses: step-security/harden-runner@<PIN-SHA>
         with:
-          egress-policy: audit
+          egress-policy: block
           allowed-endpoints: >
             api.github.com:443
             github.com:443
@@ -3087,9 +3092,10 @@ name: zizmor
 on:
   push:
     branches: [main]
-    paths: [".github/workflows/**"]
   pull_request:
-    paths: [".github/workflows/**"]
+    branches: [main]
+# No paths filter: this is a required check for the management repo, so it
+# must run on every PR. zizmor exits 0 if there are no workflows to scan.
 
 permissions:
   contents: read
@@ -3147,9 +3153,9 @@ name: actionlint
 on:
   push:
     branches: [main]
-    paths: [".github/workflows/**"]
   pull_request:
-    paths: [".github/workflows/**"]
+    branches: [main]
+# No paths filter: required check, must report on every PR.
 
 permissions:
   contents: read
@@ -3196,6 +3202,118 @@ gh run list --limit 10
 ```
 
 Expected: each workflow runs at least once on `main` push and exits 0.
+
+---
+
+### Task 16b: Apply management-repo required-status-checks ruleset
+
+This task is **deferred from Task 16a** until after Task 24 has run and at least one
+PR has produced all required check contexts. Applying it earlier would deadlock
+every PR on "Expected — Waiting for status to be reported".
+
+**Files:**
+- Modify: `repos_meta.tf`
+
+- [ ] **Step 1: Verify all required check contexts have been reported at least once**
+
+```bash
+gh api repos/millsymills-com/millsymills-com-org/commits/main/check-runs --jq '.check_runs[] | .name'
+```
+
+Expected output should include all of:
+- `tofu / plan`
+- `zizmor / zizmor`
+- `gitleaks / gitleaks`
+- `actionlint / actionlint`
+- `codeql / analyze (actions)`
+
+If any are missing, do not proceed — open a no-op PR to trigger them, wait for them to
+complete, then re-run the check.
+
+- [ ] **Step 2: Append the ruleset resource to `repos_meta.tf`**
+
+```hcl
+resource "github_repository_ruleset" "management_repo_checks" {
+  name        = "management-repo-checks"
+  repository  = module.management_repo.name
+  target      = "branch"
+  enforcement = "active"
+
+  conditions {
+    ref_name {
+      include = ["~DEFAULT_BRANCH"]
+      exclude = []
+    }
+  }
+
+  rules {
+    required_status_checks {
+      strict_required_status_checks_policy = true
+
+      required_check { context = "tofu / plan" }
+      required_check { context = "zizmor / zizmor" }
+      required_check { context = "gitleaks / gitleaks" }
+      required_check { context = "actionlint / actionlint" }
+      required_check { context = "codeql / analyze (actions)" }
+    }
+  }
+}
+```
+
+- [ ] **Step 3: Open a PR with this change**
+
+```bash
+git checkout -b feat/management-repo-required-checks
+git add repos_meta.tf
+git commit -m "feat(tofu): require status checks on management repo default branch"
+git push -u origin feat/management-repo-required-checks
+gh pr create --base main --title "feat: require status checks on management repo" --body "Activates required-check ruleset now that all contexts have been reported at least once."
+```
+
+- [ ] **Step 4: Watch the PR's tofu / plan run**
+
+```bash
+gh pr checks --watch
+```
+
+Expected: all required checks pass; merge becomes available.
+
+- [ ] **Step 5: Merge the PR**
+
+```bash
+gh pr merge --squash --delete-branch
+```
+
+- [ ] **Step 6: Verify the ruleset is active**
+
+```bash
+gh api /repos/millsymills-com/millsymills-com-org/rulesets --jq '.[] | {name, enforcement, target}'
+```
+
+Expected: `management-repo-checks` listed as `active`/`branch`.
+
+- [ ] **Step 7: Verify a deliberately-broken PR is blocked**
+
+Open a PR that breaks `tofu validate` (e.g., adds `invalid hcl ###` to a `.tf` file).
+Expected: `tofu / plan` check fails; `Merge` button is disabled.
+
+```bash
+git checkout -b test/break-validate
+echo 'invalid hcl ###' > broken.tf
+git add broken.tf
+git commit -m "test: should fail validate"
+git push -u origin test/break-validate
+gh pr create --title "test: validate should fail" --body "Expected failure."
+gh pr checks --watch
+```
+
+After confirmation, close and clean up:
+
+```bash
+gh pr close --delete-branch
+git checkout main
+git branch -D test/break-validate
+```
 
 ---
 
@@ -3352,30 +3470,7 @@ Expected: `conclusion: success`.
 
 - [ ] **Step 5: Verify required status checks block a failing PR**
 
-Open a PR that breaks `tofu validate`:
-
-```bash
-git checkout -b test/break-validate
-echo 'invalid hcl ###' > broken.tf
-git add broken.tf
-git commit -m "test: should fail validate"
-git push -u origin test/break-validate
-gh pr create --title "test: validate should fail" --body "Expected failure."
-```
-
-Wait for CI:
-
-```bash
-gh pr checks --watch
-```
-
-Expected: `tofu-plan` fails; PR cannot be merged. Then close the PR and delete the branch:
-
-```bash
-gh pr close --delete-branch
-git checkout main
-git branch -D test/break-validate
-```
+This was performed in Task 16b Step 7 (after the management-repo-checks ruleset was activated). If you skipped that verification, run it now.
 
 - [ ] **Step 6: Verify local apply is now blocked**
 
@@ -3455,7 +3550,21 @@ Type / name consistency:
 
 ## Validation changelog
 
-### 2026-05-09 — Codex review + adversarial review pass
+### 2026-05-09 — Round 3: post-fix verification pass
+
+After Round 2 fixes were applied, both reviewers were re-run against the v2 plan. Five new legitimate findings emerged from the post-fix pass; all are now addressed.
+
+| # | Finding | Source | Resolution |
+|---|---|---|---|
+| 11 | Fork PRs can still get plan role + reader App key. The new `repository_id`/`repository_owner_id`/`job_workflow_ref` claims describe the BASE repo and base workflow file — they do NOT distinguish a fork-PR run (which uses the base workflow) from an internal-PR run. | adversarial v3 | Plan job now gated by `if: github.event.pull_request.head.repo.full_name == github.repository`, which skips the credentialed job for fork PRs entirely. `harden-runner` switched from `egress-policy: audit` to `egress-policy: block` on all credentialed jobs (plan, apply, drift) so even an unexpected breakout cannot exfiltrate to non-allowlisted hosts. |
+| 12 | Required-check ruleset listed `zizmor / zizmor`, `actionlint / actionlint`, and `scorecard / analysis`, but those workflows had path filters or non-PR triggers — for many PRs, those checks would never run, leaving GitHub at "Expected" forever. Combined with the no-bypass posture from #6, the repo could lock itself out of merges. | adversarial v3 | Removed path filters from `zizmor.yml` and `actionlint.yml`; both now run on every `pull_request: branches: [main]`. Removed `scorecard / analysis` from the required-check list (it's a scheduled scoring tool, not a per-PR check). |
+| 13 | Management repo could be double-imported: Task 13's `gh repo list` includes it, and Task 16 also imports it. State conflict. | adversarial v3 | `local.existing_repos` in Task 13 explicitly excludes `millsymills-com-org` with a comment. The `gh repo list` example in the runbook now pipes through `jq` to filter it out. Task 13 Step 12 verifies it is NOT in state under `module.existing` before proceeding. |
+| 14 | `repos/_existing.tf` and `repos/_imports.tf` would not be loaded by root `tofu plan` — OpenTofu reads `.tf` files from the working directory only, not subdirectories. The whole import path would silently no-op. | codex:review v3 | Files moved to root: `repos_existing.tf`, `repos_imports.tf`, `repos_meta.tf`. Module `source = "./modules/repo-baseline"` (no longer `../`). Directory layout note in Task 1 updated. |
+| 15 | The required-check ruleset was being applied in Task 16 (before Tasks 18-20, 24 had run); GitHub would mark required checks as "Expected" with no run history, blocking every subsequent PR. | codex:review v3 + adversarial v3 | Task 16 split into 16a (repo + environments only, no ruleset) and 16b (ruleset, applied after Task 24 + first verified CI run). Task 16b includes a check-runs verification step before activating the ruleset, plus the failing-PR test that was previously in Task 27. |
+
+---
+
+### 2026-05-09 — Round 2: Codex review + adversarial review pass
 
 | # | Finding | Source | Resolution |
 |---|---|---|---|
