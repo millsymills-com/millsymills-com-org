@@ -215,4 +215,184 @@ EOF
 
 create_state_kms_key
 
+# ---------------------------------------------------------------------
+# Phase 1.3: IAM OIDC provider + three roles
+# ---------------------------------------------------------------------
+
+GH_OIDC_URL="https://token.actions.githubusercontent.com"
+ORG_REPO="millsymills-com/millsymills-com-org"
+
+create_oidc_provider() {
+  log "would create IAM OIDC provider for ${GH_OIDC_URL}"
+
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    return 0
+  fi
+
+  EXISTING=$(aws iam list-open-id-connect-providers \
+    --query "OpenIDConnectProviderList[?contains(Arn, 'token.actions.githubusercontent.com')].Arn | [0]" \
+    --output text)
+
+  if [[ -n "${EXISTING}" && "${EXISTING}" != "None" ]]; then
+    log "OIDC provider already exists: ${EXISTING}"
+    OIDC_PROVIDER_ARN="${EXISTING}"
+  else
+    OIDC_PROVIDER_ARN=$(aws iam create-open-id-connect-provider \
+      --url "${GH_OIDC_URL}" \
+      --client-id-list "sts.amazonaws.com" \
+      --thumbprint-list "ffffffffffffffffffffffffffffffffffffffff" \
+      --query OpenIDConnectProviderArn --output text)
+    log "created OIDC provider ${OIDC_PROVIDER_ARN}"
+  fi
+}
+
+create_role() {
+  local role_name="$1"
+  local environment="$2"
+  local extra_perms_json="$3"
+
+  log "would create IAM role: ${role_name} (environment:${environment})"
+
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    return 0
+  fi
+
+  # Look up org and repo IDs (immutable claims for trust policy).
+  ORG_ID=$(gh api /orgs/millsymills-com --jq .id)
+  REPO_ID=$(gh api /repos/millsymills-com/millsymills-com-org --jq .id)
+  WORKFLOW_REF="millsymills-com/millsymills-com-org/.github/workflows/tofu-${environment#tofu-}.yml@refs/heads/main"
+
+  TRUST=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Federated": "${OIDC_PROVIDER_ARN}"},
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": "repo:${ORG_REPO}:environment:${environment}",
+        "token.actions.githubusercontent.com:environment": "${environment}",
+        "token.actions.githubusercontent.com:repository_id": "${REPO_ID}",
+        "token.actions.githubusercontent.com:repository_owner_id": "${ORG_ID}"
+      },
+      "StringLike": {
+        "token.actions.githubusercontent.com:job_workflow_ref": "${WORKFLOW_REF}"
+      }
+    }
+  }]
+}
+EOF
+)
+
+  if aws iam get-role --role-name "${role_name}" >/dev/null 2>&1; then
+    log "role ${role_name} exists; updating trust policy"
+    aws iam update-assume-role-policy --role-name "${role_name}" --policy-document "${TRUST}"
+  else
+    aws iam create-role --role-name "${role_name}" \
+      --assume-role-policy-document "${TRUST}" \
+      --max-session-duration 3600 \
+      --description "GitHub Actions OIDC role for ${environment} on ${ORG_REPO}"
+  fi
+
+  BASE_PERMS=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StateRead",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::${STATE_BUCKET}",
+        "arn:aws:s3:::${STATE_BUCKET}/*"
+      ]
+    },
+    {
+      "Sid": "LockFileWriteScopedToTflock",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::${STATE_BUCKET}/*.tflock"
+    },
+    {
+      "Sid": "KMSReadAndLockEncrypt",
+      "Effect": "Allow",
+      "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"],
+      "Resource": "${KMS_KEY_ARN}"
+    }
+  ]
+}
+EOF
+)
+  aws iam put-role-policy --role-name "${role_name}" --policy-name base \
+    --policy-document "${BASE_PERMS}"
+
+  if [[ -n "${extra_perms_json}" ]]; then
+    aws iam put-role-policy --role-name "${role_name}" --policy-name extra \
+      --policy-document "${extra_perms_json}"
+  fi
+}
+
+create_oidc_provider
+
+# KMS_KEY_ARN is populated by create_state_kms_key in non-dry-run mode.
+# Default to empty so the heredocs below evaluate cleanly under set -u.
+KMS_KEY_ARN="${KMS_KEY_ARN:-}"
+
+PLAN_EXTRA=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "secretsmanager:GetSecretValue",
+    "Resource": "arn:aws:secretsmanager:${AWS_REGION}:*:secret:github-app-key/millsymills-org-bot-reader-*"
+  }]
+}
+EOF
+)
+
+APPLY_EXTRA=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StateWrite",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::${STATE_BUCKET}/*"
+    },
+    {
+      "Sid": "KMSReEncrypt",
+      "Effect": "Allow",
+      "Action": ["kms:ReEncrypt*"],
+      "Resource": "${KMS_KEY_ARN}"
+    },
+    {
+      "Sid": "WriterAppKey",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:${AWS_REGION}:*:secret:github-app-key/millsymills-org-bot-writer-*"
+    }
+  ]
+}
+EOF
+)
+
+DRIFT_EXTRA=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "secretsmanager:GetSecretValue",
+    "Resource": "arn:aws:secretsmanager:${AWS_REGION}:*:secret:github-app-key/millsymills-org-bot-writer-*"
+  }]
+}
+EOF
+)
+
+create_role "gha-millsymills-org-tofu-plan"  "tofu-plan"  "${PLAN_EXTRA}"
+create_role "gha-millsymills-org-tofu-apply" "tofu-apply" "${APPLY_EXTRA}"
+create_role "gha-millsymills-org-tofu-drift" "tofu-drift" "${DRIFT_EXTRA}"
+
 log "bootstrap complete (skeleton only)"
