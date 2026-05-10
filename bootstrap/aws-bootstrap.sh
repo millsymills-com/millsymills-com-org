@@ -43,12 +43,21 @@ log "starting AWS bootstrap (dry-run=${DRY_RUN}, force=${FORCE})"
 # Phase 1.1: S3 state bucket
 # ---------------------------------------------------------------------
 
-STATE_BUCKET="${STATE_BUCKET:-tfstate-millsymills-com}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 # Pin every aws CLI call to AWS_REGION. Without this, only commands that pass
 # `--region` explicitly land in the right region; anything else inherits the
 # user's CLI default, which can cause cross-region S3+KMS mismatches.
 export AWS_DEFAULT_REGION="${AWS_REGION}"
+
+# Resolve account ID once. Used to namespace the state bucket so its name is
+# globally unique by construction (avoids the "name held by DNS during cleanup"
+# trap when buckets are deleted and recreated).
+if [[ "${DRY_RUN}" -ne 1 ]]; then
+  ACCOUNT_ID="${ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text)}"
+else
+  ACCOUNT_ID="${ACCOUNT_ID:-DRYRUN}"
+fi
+STATE_BUCKET="${STATE_BUCKET:-tfstate-millsymills-${ACCOUNT_ID}}"
 
 create_state_bucket() {
   log "would create S3 bucket: ${STATE_BUCKET} (region ${AWS_REGION})"
