@@ -2364,10 +2364,12 @@ on:
       - "repos_*.tf"
       - "org.tf"
 
+# Workflow-level permissions are read-only by default. Jobs that need write
+# scopes or OIDC tokens declare them explicitly at the job level. This stops
+# the uncredentialed `validate` job from inheriting any token capability that
+# PR-controlled code (provider plugins, tflint plugins) could exploit.
 permissions:
   contents: read
-  id-token: write
-  pull-requests: write
 
 concurrency:
   group: tofu-plan-${{ github.ref }}
@@ -2377,9 +2379,13 @@ jobs:
   validate:
     name: validate
     # Runs on EVERY PR including fork PRs. Uncredentialed: no AWS, no App key,
-    # no provider API calls. This is the required check; it always actually
-    # executes (never skipped), so a fork PR cannot bypass validation by
-    # exploiting GitHub's "skipped == passing" semantics.
+    # no provider API calls. This is one of the required checks; it always
+    # actually executes (never skipped), so a fork PR cannot bypass validation
+    # by exploiting GitHub's "skipped == passing" semantics.
+    permissions:
+      contents: read
+      # Explicitly NO id-token, NO pull-requests. PR-controlled provider/tflint
+      # plugins cannot mint OIDC tokens or post comments from this job.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -2422,13 +2428,15 @@ jobs:
 
   plan:
     name: plan
-    # Credentialed plan: runs only on INTERNAL PRs. Fork PRs skip this job; their
-    # required check comes from `validate` above. The OIDC immutable claims
-    # describe the BASE workflow file, so they don't distinguish a fork PR run
-    # from an internal PR run — the if: guard is the only reliable way to keep
-    # AWS creds and the reader App key out of fork-PR-controlled code.
+    # Credentialed plan: runs only on INTERNAL PRs. Fork PRs skip this job; the
+    # `gate` job below is what enforces the required-check semantics correctly
+    # for both fork and internal PRs.
     if: github.event.pull_request.head.repo.full_name == github.repository
     needs: validate
+    permissions:
+      id-token: write
+      pull-requests: write
+      contents: read
     runs-on: ubuntu-24.04
     environment: tofu-plan
     timeout-minutes: 15
@@ -2508,13 +2516,56 @@ jobs:
         with:
           header: tofu-plan
           path: plan.txt
+
+  gate:
+    name: gate
+    # The single required-status-check for the management-repo ruleset. Always
+    # runs (if: always()), regardless of whether `plan` was skipped on a fork
+    # PR or failed on an internal PR. Encodes the conditional rule:
+    #   - validate must succeed (always required, fork and internal)
+    #   - plan must succeed OR be skipped (skipped is the fork-PR case)
+    # This closes the loophole where a skipped check is treated as passing,
+    # AND the loophole where an internal PR could merge without a real plan.
+    needs: [validate, plan]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    permissions:
+      contents: read
+    steps:
+      - name: Verify upstream conclusions
+        env:
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          set -euo pipefail
+          echo "validate=${VALIDATE_RESULT} plan=${PLAN_RESULT} is_fork=${IS_FORK}"
+          if [[ "${VALIDATE_RESULT}" != "success" ]]; then
+            echo "FAIL: validate did not succeed"
+            exit 1
+          fi
+          # Internal PRs MUST have a successful plan. Fork PRs MUST have a
+          # skipped plan (skipped is the if-guard's expected outcome).
+          if [[ "${IS_FORK}" == "true" ]]; then
+            if [[ "${PLAN_RESULT}" != "skipped" ]]; then
+              echo "FAIL: fork PR — plan should be skipped, got ${PLAN_RESULT}"
+              exit 1
+            fi
+          else
+            if [[ "${PLAN_RESULT}" != "success" ]]; then
+              echo "FAIL: internal PR — plan must succeed, got ${PLAN_RESULT}"
+              exit 1
+            fi
+          fi
+          echo "OK"
 ```
 
 **Notes:**
 - Replace each `<PIN-SHA>` with the SHA of the latest pinned version. Get the SHA via `gh api /repos/<action>/git/refs/tags/<version> --jq '.object.sha'`.
 - Replace `<ACCT>` with your AWS account ID from `bootstrap/aws-output.json`.
 - Two repository variables (`READER_APP_ID`, `READER_INSTALLATION_ID`) need to be set on the management repo. Set them in Task 22.
-- The workflow `name:` is `tofu` and the job `name:` is `plan`, producing a check-run context of `tofu / plan`. The default-branch ruleset's `required_status_checks` references this exact string.
+- The workflow `name:` is `tofu`. The job names produce check contexts `tofu / validate`, `tofu / plan`, and `tofu / gate`. **Only `tofu / gate` is required** by the management-repo ruleset — gate enforces the conditional rule across `validate` (always required) and `plan` (required for internal PRs, must-be-skipped for fork PRs).
 - No `tfplan` binary is written or uploaded; the apply workflow re-plans on `main`. This avoids the risk of leaking the App private key (or any other sensitive variable) through Tofu's plan-file serialization.
 
 - [ ] **Step 2: Look up pinned SHAs**
@@ -3269,14 +3320,17 @@ gh api repos/millsymills-com/millsymills-com-org/commits/main/check-runs --jq '.
 ```
 
 Expected output should include all of:
-- `tofu / plan`
+- `tofu / gate`
 - `zizmor / zizmor`
 - `gitleaks / gitleaks`
 - `actionlint / actionlint`
 - `codeql / analyze (actions)`
 
-If any are missing, do not proceed — open a no-op PR to trigger them, wait for them to
-complete, then re-run the check.
+(Note: `tofu / validate` and `tofu / plan` will also appear because they are upstream
+of the gate, but they are NOT required by the ruleset — only `tofu / gate` is.)
+
+If any required name is missing, do not proceed — open a no-op PR to trigger them, wait
+for them to complete, then re-run the check.
 
 - [ ] **Step 2: Append the ruleset resource to `repos_meta.tf`**
 
@@ -3300,16 +3354,18 @@ resource "github_repository_ruleset" "management_repo_checks" {
 
       # Required checks must come from JOBS THAT ALWAYS RUN (not jobs that can
       # be skipped by an `if:` guard). GitHub treats a skipped check-run as
-      # passing for required-check purposes, so a fork PR could merge with a
-      # skipped check.
-      required_check { context = "tofu / validate" }          # tofu-plan.yml validate job (uncredentialed, always runs)
+      # passing for required-check purposes, which would let a fork PR merge.
+      #
+      # `tofu / gate` is a synthesizer job that runs on every PR (if: always()),
+      # depends on both validate and plan, and asserts:
+      #   - validate must succeed (every PR)
+      #   - plan must succeed (internal PR) or be skipped (fork PR)
+      # This single context encodes the conditional rule correctly.
+      required_check { context = "tofu / gate" }
       required_check { context = "zizmor / zizmor" }
       required_check { context = "gitleaks / gitleaks" }
       required_check { context = "actionlint / actionlint" }
       required_check { context = "codeql / analyze (actions)" }
-      # NOT required: `tofu / plan` is gated to internal PRs only and would
-      # report "skipped" on fork PRs (which counts as passing — bypassing the
-      # protection). The validate job is the load-bearing required check.
     }
   }
 }
@@ -3604,6 +3660,16 @@ Type / name consistency:
 ---
 
 ## Validation changelog
+
+### 2026-05-09 — Round 5: verification on round-4 fixes
+
+| # | Finding | Source | Resolution |
+|---|---|---|---|
+| 18 | Task 16b's pre-flight verification listed `tofu / plan` but the new required check (round 4) is `tofu / validate`. Following the documented steps could activate the ruleset before the right context exists. | codex:review v5 | Updated Task 16b Step 1 to expect `tofu / gate` (the round-5 required-check name; see #20). |
+| 19 | The new uncredentialed `validate` job inherited workflow-level `id-token: write` and `pull-requests: write`. PR-controlled provider/tflint plugins running in that job could mint OIDC tokens or post comments. | adversarial v5 | Workflow-level `permissions:` reduced to `contents: read`. Each job declares its own minimum scope: `validate` keeps `contents: read` only; `plan` adds `id-token: write` + `pull-requests: write`; `gate` is `contents: read`. |
+| 20 | Internal PRs could merge after `validate` passed even if `plan` failed/was cancelled, because `tofu / plan` was no longer required. | adversarial v5 | Added `gate` job (`if: always()`, `needs: [validate, plan]`) that asserts: validate succeeded AND (plan succeeded for internal PR OR plan skipped for fork PR). Required check changed from `tofu / validate` to `tofu / gate`. Single context encodes the conditional rule correctly for both fork and internal PRs. |
+
+---
 
 ### 2026-05-09 — Round 4: verification spot-check on round-3 fixes
 
