@@ -20,3 +20,12 @@ module "ruleset_default_branch" {
   required_status_checks          = []
   required_approving_review_count = 0 # solo-dev caveat (spec Section 4)
 }
+
+module "ruleset_tag_protection" {
+  source = "./modules/ruleset-tag-protection"
+
+  # Mirrors the branch-protection rollout: evaluate-mode for the initial
+  # apply, flip to "active" in a follow-up commit once we've watched for a
+  # week of rule-insights data and exercised the release flow at least once.
+  enforcement = "evaluate"
+}
