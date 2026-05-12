@@ -15,7 +15,6 @@ resource "github_repository" "this" {
   allow_auto_merge       = false
 
   is_template                 = var.is_template
-  vulnerability_alerts        = true
   web_commit_signoff_required = true
 
   archive_on_destroy = var.archive_on_destroy
@@ -32,4 +31,12 @@ resource "github_repository" "this" {
       status = "enabled"
     }
   }
+}
+
+# Sibling resource replaces the deprecated `vulnerability_alerts` argument
+# on `github_repository` (provider 6.x). Inline removal + this resource +
+# root-level `import` blocks per repo migrate state without disabling alerts.
+resource "github_repository_vulnerability_alerts" "this" {
+  repository = github_repository.this.name
+  enabled    = true
 }
