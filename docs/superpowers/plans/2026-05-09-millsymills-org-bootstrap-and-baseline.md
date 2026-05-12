@@ -3704,6 +3704,24 @@ Type / name consistency:
   history; if/when it is re-enabled, update Task 5 to emit the
   corrected trust shape.
 
+- **Reader GitHub App needs `organization_administration: write` even for read-only `tofu plan`.**
+  Surfaced during Task 23's PR-canary. `tofu plan` refreshes
+  `github_organization_ruleset` resources, which calls
+  `GET /orgs/{org}/rulesets/{id}`. GitHub's docs say this endpoint
+  requires `organization_administration: read`; in practice it returns
+  `403 Resource not accessible by integration` unless the App is
+  granted `write`. The writer App (which has `:write`) returns 200 on
+  the same call; the reader App with `:read` returns 403. Bumped
+  `millsymills-org-bot-reader` to `organization_administration:
+  write` via the App settings UI + installation accept. The reader
+  still cannot apply (no AWS apply-role trust, no `tofu apply` in the
+  plan workflow); the split's primary defense — AWS-side — is intact.
+  Canary PR re-ran green (validate + plan + gate all success on a
+  real PR ref).
+  Documented in `bootstrap/github-bootstrap.md` once Task 26 lockdown
+  is in place; for now the bootstrap doc still shows the App created
+  with `:read` and is intentionally drifted from live state.
+
 - **PR-modified workflow can short-circuit the `tofu / gate` required status check.**
   Surfaced during the post-Task-18 adversarial review. An internal PR that edits
   `.github/workflows/tofu-plan.yml` can rename or stub the `gate` job — GitHub
