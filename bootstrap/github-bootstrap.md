@@ -166,15 +166,85 @@ git commit -S -m "chore(bootstrap): record GitHub App IDs from initial bootstrap
 
 ## 7. Post-bootstrap lockdown
 
-After CI is verified working end-to-end (Task 23 of the plan):
+After CI is verified working end-to-end (Task 23 of the plan), reduce
+local AWS access so that mutating the org/account requires the OIDC
+pipeline rather than long-lived credentials on disk.
 
-1. Reduce local AWS credentials to read-only or revoke the admin user/role used during bootstrap.
-2. Verify you can no longer mutate state from the local CLI.
+Bootstrap ran as the AWS account root user with permanent root access
+keys. Both are anti-patterns once the OIDC pipeline is live; the
+lockdown removes them and replaces them with read-only IAM-user keys
+for the local CLI.
 
-Test:
+### Step 1 — Delete root account access keys
+
+In the AWS console:
+
+1. Sign in as the root user.
+2. Top-right menu → **Security credentials**.
+3. Under **Access keys**, locate any active access key (you used these
+   during bootstrap). Click **Actions → Delete**.
+4. Confirm.
+
+Verify from the local CLI **before** updating `~/.aws/credentials`:
 
 ```bash
-aws s3api put-bucket-policy --region us-west-1 --bucket tfstate-millsymills-025507317036 --policy '{}' 2>&1
+aws sts get-caller-identity
+```
+
+Expected: an error like `InvalidClientTokenId` (the key no longer
+authenticates). If it still returns the root identity, the deletion
+hasn't propagated yet — wait ~30s and retry.
+
+### Step 2 — Create a read-only IAM access key for `mills`
+
+In the AWS console:
+
+1. **IAM → Users → mills → Permissions → Add permissions → Attach
+   policies directly**, attach `ReadOnlyAccess` (AWS managed).
+2. **IAM → Users → mills → Security credentials → Create access key**.
+3. Use case: **Command Line Interface (CLI)**. Acknowledge the warning.
+4. Download the CSV (or copy the values somewhere safe).
+
+### Step 3 — Update `~/.aws/credentials`
+
+Overwrite the `[default]` profile with the new `mills` access key. The
+keys belong to a user with only `ReadOnlyAccess`; subsequent mutations
+return `AccessDenied`.
+
+```bash
+aws configure
+# AWS Access Key ID:    <the new mills access key id>
+# AWS Secret Access Key: <the new mills secret>
+# Default region:       us-west-1
+# Default output:       json
+```
+
+### Step 4 — Verify lockdown
+
+```bash
+aws sts get-caller-identity
+```
+
+Expected: `arn:aws:iam::025507317036:user/mills` (no longer root).
+
+```bash
+aws s3api put-bucket-policy \
+  --region us-west-1 \
+  --bucket tfstate-millsymills-025507317036 \
+  --policy '{}' 2>&1
 ```
 
 Expected: `AccessDenied`.
+
+```bash
+aws iam attach-role-policy \
+  --role-name gha-millsymills-org-tofu-plan \
+  --policy-arn arn:aws:iam::aws:policy/AdministratorAccess 2>&1
+```
+
+Expected: `AccessDenied`.
+
+After lockdown, any future Tofu changes go through the PR workflow
+(plan on PR, apply on merge); the only way to recover write access
+from a local machine is to issue a fresh access key from the AWS
+console, which is a deliberate, auditable step.
