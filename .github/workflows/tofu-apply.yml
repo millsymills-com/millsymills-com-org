@@ -61,9 +61,13 @@ jobs:
             -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r '.value')
           PAYLOAD=$(echo "${TOKEN}" | cut -d. -f2)
-          # base64 pad
           while [ $(( ${#PAYLOAD} % 4 )) -ne 0 ]; do PAYLOAD="${PAYLOAD}="; done
-          echo "${PAYLOAD}" | tr '_-' '/+' | base64 -d 2>/dev/null | jq '{sub, aud, repository_id, repository_owner_id, environment, job_workflow_ref, ref, actor, event_name}'
+          DECODED=$(echo "${PAYLOAD}" | tr '_-' '/+' | base64 -d 2>/dev/null)
+          echo "=== type/value via jq ==="
+          echo "${DECODED}" | jq '{repository_owner_id_type: (.repository_owner_id | type), repository_owner_id: .repository_owner_id, repository_id_type: (.repository_id | type), repository_id: .repository_id}'
+          echo "=== raw grep ==="
+          echo "${DECODED}" | grep -o '"repository_owner_id":[^,]*' | head -3
+          echo "${DECODED}" | grep -o '"repository_id":[^,]*' | head -3
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
