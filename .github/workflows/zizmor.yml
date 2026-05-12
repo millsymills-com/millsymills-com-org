@@ -26,3 +26,8 @@ jobs:
       - uses: zizmorcore/zizmor-action@b1d7e1fb5de872772f31590499237e7cce841e8e # v0.5.3
         with:
           inputs: ".github/workflows/"
+          # GHAS is not enabled on this repo (Free plan). Without this,
+          # zizmor-action uploads SARIF, which surfaces as a second
+          # `zizmor` check-run owned by github-advanced-security that
+          # stays queued forever and deadlocks the required-check ruleset.
+          advanced-security: false
