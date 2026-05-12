@@ -14,8 +14,8 @@ module "management_repo" {
 }
 
 # Per-repo required-status-checks ruleset is intentionally deferred to Task 16b
-# (after Task 24 + first verified CI run). Adding it here would block every PR
-# because the required check contexts wouldn't yet exist in GitHub's history.
+# (after Task 24 + the first verified CI run). Adding it here would block every
+# PR because the required check contexts wouldn't yet exist in GitHub's history.
 
 resource "github_repository_environment" "tofu_plan" {
   repository  = module.management_repo.name
