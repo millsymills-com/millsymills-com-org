@@ -58,3 +58,40 @@ resource "github_repository_environment_deployment_policy" "tofu_drift_main" {
   environment    = github_repository_environment.tofu_drift.environment
   branch_pattern = "main"
 }
+
+# Required-status-checks ruleset on the management repo's default branch.
+# Context strings are JOB names, not "<workflow> / <job>" — plan-1 v5 spec
+# specified the latter but GitHub's check-runs API surfaces just the job
+# name, and that's what ruleset matching compares against. Verified via
+# `gh api repos/.../check-runs` on the canary PR before applying.
+resource "github_repository_ruleset" "management_repo_checks" {
+  name        = "management-repo-checks"
+  repository  = module.management_repo.name
+  target      = "branch"
+  enforcement = "active"
+
+  conditions {
+    ref_name {
+      include = ["~DEFAULT_BRANCH"]
+      exclude = []
+    }
+  }
+
+  rules {
+    required_status_checks {
+      strict_required_status_checks_policy = true
+
+      # `gate` is the synthesizer job in tofu-plan.yml (`if: always()`) that
+      # depends on validate + plan and asserts the conditional rule:
+      #   - validate must succeed (every PR)
+      #   - plan must succeed (internal PR) or be skipped (fork PR)
+      # Encoding it as a single context avoids the "skipped == passing"
+      # loophole that would otherwise let fork PRs merge.
+      required_check { context = "gate" }
+      required_check { context = "zizmor" }
+      required_check { context = "gitleaks" }
+      required_check { context = "actionlint" }
+      required_check { context = "analyze (actions)" }
+    }
+  }
+}
