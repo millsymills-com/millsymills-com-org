@@ -40,6 +40,7 @@ jobs:
             get.opentofu.org:443
             release-assets.githubusercontent.com:443
             sts.amazonaws.com:443
+            sts.us-west-1.amazonaws.com:443
             s3.us-west-1.amazonaws.com:443
             tfstate-millsymills-025507317036.s3.us-west-1.amazonaws.com:443
             secretsmanager.us-west-1.amazonaws.com:443
