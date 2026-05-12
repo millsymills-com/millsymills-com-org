@@ -3,13 +3,11 @@ name: tofu
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "**/*.tf"
-      - "**/*.tfvars.example"
-      - ".github/workflows/tofu-*.yml"
-      - "modules/**"
-      - "repos_*.tf"
-      - "org.tf"
+    # No paths filter: the management-repo required-status-checks ruleset
+    # requires `gate` to report on every PR. With a paths filter, doc-only
+    # PRs would never trigger this workflow and would deadlock waiting for
+    # the required check. Cost is ~30s of validate per PR; tofu plan
+    # short-circuits to "no changes" when no .tf files differ.
 
 # Workflow-level permissions are read-only by default. Jobs that need write
 # scopes or OIDC tokens declare them explicitly. This stops the uncredentialed
