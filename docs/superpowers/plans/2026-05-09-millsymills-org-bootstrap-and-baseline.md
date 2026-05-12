@@ -3675,6 +3675,35 @@ Type / name consistency:
 - **Solo-dev required-reviewer:** `required_approving_review_count = 0` because GitHub Free + solo dev. Plan 2 adds an environment-protection rule on `tofu-apply` that requires manual approval as a defense-in-depth substitute.
 - **No SLSA-3 attestation in Plan 1:** SBOM + provenance attestation is set up in Plan 2 alongside the portfolio repos (which are the things that release artifacts).
 - **`millsymills.com` tie-in not addressed:** Plan 2.
+- **`repository_owner_id` OIDC condition is not honored by this AWS account's GitHub OIDC provider.**
+  Surfaced during Task 23's first push. Adding
+  `token.actions.githubusercontent.com:repository_owner_id` (or
+  `:repository_owner`) to any of the three role trust policies caused
+  `AssumeRoleWithWebIdentity` to return AccessDenied even when the JWT
+  carried the exact expected value (verified via in-workflow JWT decode
+  and a direct `aws sts assume-role-with-web-identity` call). Same
+  trust without that key, or with `repository_id`/`actor_id` instead,
+  succeeds. AWS does not expose a claim-filter attribute on the OIDC
+  provider, so the root cause is unclear; the working theory is an
+  AWS-side parsing quirk specific to `repository_owner*` claim names on
+  GitHub OIDC providers.
+  Resolution applied via `aws iam update-assume-role-policy` for all
+  three roles (state now diverges from `bootstrap/aws-bootstrap.sh`):
+  - `sub` already encodes `org/repo:environment:<env>`, repos cannot
+    collide cross-org, and `repository_id` is immutable across renames,
+    so dropping `repository_owner_id` leaves equivalent protection in
+    practice.
+  - `job_workflow_ref` stayed pinned to `@refs/heads/main` for
+    `tofu-apply` and `tofu-drift` (push and schedule only fire on
+    main), and was relaxed to `tofu-plan.yml@*` for `tofu-plan` because
+    PR runs use `refs/pull/N/merge`, which would otherwise deny every
+    PR plan.
+  Future bootstrap re-runs would overwrite these trust policies back
+  to the broken shape; mitigated by Task 26's `bootstrap/.disabled`
+  sentinel. The bootstrap script itself is left unchanged for audit
+  history; if/when it is re-enabled, update Task 5 to emit the
+  corrected trust shape.
+
 - **PR-modified workflow can short-circuit the `tofu / gate` required status check.**
   Surfaced during the post-Task-18 adversarial review. An internal PR that edits
   `.github/workflows/tofu-plan.yml` can rename or stub the `gate` job — GitHub
