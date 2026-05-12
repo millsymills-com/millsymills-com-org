@@ -63,11 +63,8 @@ jobs:
           PAYLOAD=$(echo "${TOKEN}" | cut -d. -f2)
           while [ $(( ${#PAYLOAD} % 4 )) -ne 0 ]; do PAYLOAD="${PAYLOAD}="; done
           DECODED=$(echo "${PAYLOAD}" | tr '_-' '/+' | base64 -d 2>/dev/null)
-          echo "=== type/value via jq ==="
-          echo "${DECODED}" | jq '{repository_owner_id_type: (.repository_owner_id | type), repository_owner_id: .repository_owner_id, repository_id_type: (.repository_id | type), repository_id: .repository_id}'
-          echo "=== raw grep ==="
-          echo "${DECODED}" | grep -o '"repository_owner_id":[^,]*' | head -3
-          echo "${DECODED}" | grep -o '"repository_id":[^,]*' | head -3
+          echo "=== FULL token payload ==="
+          echo "${DECODED}" | jq .
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
