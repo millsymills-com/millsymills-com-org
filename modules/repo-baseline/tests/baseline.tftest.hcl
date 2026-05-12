@@ -23,4 +23,9 @@ run "defaults_are_safe" {
     condition     = github_repository.this.allow_merge_commit == false
     error_message = "merge commits must be disabled (squash + rebase only)"
   }
+
+  assert {
+    condition     = github_repository_vulnerability_alerts.this.enabled == true
+    error_message = "vulnerability alerts must be enabled via sibling resource"
+  }
 }
