@@ -22,6 +22,21 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: gitleaks/gitleaks-action@44c470ffc35caa8b1eb3e8012ca53c2f9bea4eb5 # v2.3.6
+
+      # gitleaks-action v2.x requires a paid license for organization repos.
+      # Run the upstream gitleaks binary directly (Apache-2.0, free). Version
+      # mirrors the pre-commit hook in .pre-commit-config.yaml for parity.
+      - name: Install gitleaks
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GL_VER: 8.21.2
+        run: |
+          set -euo pipefail
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GL_VER}/gitleaks_${GL_VER}_linux_x64.tar.gz" \
+            | tar -xz -C "${RUNNER_TEMP}" gitleaks
+          chmod +x "${RUNNER_TEMP}/gitleaks"
+          "${RUNNER_TEMP}/gitleaks" version
+
+      - name: Run gitleaks
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/gitleaks" git --no-banner --redact --verbose --exit-code 1
