@@ -17,6 +17,19 @@
 - Every commit message uses imperative mood and is signed (SSH key signing already configured per spec).
 - Every Tofu apply step requires the previous step's plan to have been reviewed before applying.
 
+**Deployed state (authoritative; supersedes any placeholders below):**
+- AWS account: `025507317036`
+- AWS region: `us-west-1`
+- State bucket: `tfstate-millsymills-025507317036`
+- KMS alias: `alias/tfstate-millsymills`
+
+The Phase A snippets below show the bootstrap script's *default* placeholders
+(`tfstate-millsymills-com`, `us-east-1`); the actual run overrode them via
+environment variables. Tasks in Phase C and later substitute the deployed
+values in committed CI files. If you find a stale `us-east-1` or
+`tfstate-millsymills-com` reference in a YAML/HCL block that is about to be
+committed, replace it with the deployed value above before committing.
+
 ---
 
 ## Phase A — Bootstrap (one-time setup)
@@ -1085,10 +1098,10 @@ Expected: each phase logs creation; final log line says "AWS bootstrap complete.
 
 - [ ] **Step 4: Verify S3 bucket**
 
-Run: `aws s3api get-bucket-versioning --bucket tfstate-millsymills-com`
+Run: `aws s3api get-bucket-versioning --bucket tfstate-millsymills-025507317036 --region us-west-1`
 Expected: `{"Status": "Enabled", "MFADelete": "Disabled"}`.
 
-Run: `aws s3api get-public-access-block --bucket tfstate-millsymills-com`
+Run: `aws s3api get-public-access-block --bucket tfstate-millsymills-025507317036 --region us-west-1`
 Expected: all four blocks `true`.
 
 - [ ] **Step 5: Verify KMS key and rotation**
@@ -1386,9 +1399,9 @@ terraform {
 ```hcl
 terraform {
   backend "s3" {
-    bucket       = "tfstate-millsymills-com"
+    bucket       = "tfstate-millsymills-025507317036"
     key          = "millsymills-com-org/terraform.tfstate"
-    region       = "us-east-1"
+    region       = "us-west-1"
     use_lockfile = true
     encrypt      = true
     kms_key_id   = "alias/tfstate-millsymills"
@@ -1429,7 +1442,7 @@ variable "github_app_pem_file" {
 variable "aws_region" {
   description = "AWS region for state and KMS."
   type        = string
-  default     = "us-east-1"
+  default     = "us-west-1"
 }
 ```
 
@@ -2461,10 +2474,10 @@ jobs:
             objects.githubusercontent.com:443
             registry.opentofu.org:443
             sts.amazonaws.com:443
-            s3.us-east-1.amazonaws.com:443
-            tfstate-millsymills-com.s3.us-east-1.amazonaws.com:443
-            secretsmanager.us-east-1.amazonaws.com:443
-            kms.us-east-1.amazonaws.com:443
+            s3.us-west-1.amazonaws.com:443
+            tfstate-millsymills-025507317036.s3.us-west-1.amazonaws.com:443
+            secretsmanager.us-west-1.amazonaws.com:443
+            kms.us-west-1.amazonaws.com:443
 
       - name: Checkout
         uses: actions/checkout@<PIN-SHA>  # v4.2.2
@@ -2485,7 +2498,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@<PIN-SHA>  # v4.0.2
         with:
           role-to-assume: arn:aws:iam::<ACCT>:role/gha-millsymills-org-tofu-plan
-          aws-region: us-east-1
+          aws-region: us-west-1
 
       - name: Fetch reader App key to a tempfile
         id: app_key
@@ -2651,10 +2664,10 @@ jobs:
             objects.githubusercontent.com:443
             registry.opentofu.org:443
             sts.amazonaws.com:443
-            s3.us-east-1.amazonaws.com:443
-            tfstate-millsymills-com.s3.us-east-1.amazonaws.com:443
-            secretsmanager.us-east-1.amazonaws.com:443
-            kms.us-east-1.amazonaws.com:443
+            s3.us-west-1.amazonaws.com:443
+            tfstate-millsymills-025507317036.s3.us-west-1.amazonaws.com:443
+            secretsmanager.us-west-1.amazonaws.com:443
+            kms.us-west-1.amazonaws.com:443
 
       - name: Checkout
         uses: actions/checkout@<PIN-SHA>
@@ -2670,7 +2683,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@<PIN-SHA>
         with:
           role-to-assume: arn:aws:iam::<ACCT>:role/gha-millsymills-org-tofu-apply
-          aws-region: us-east-1
+          aws-region: us-west-1
 
       - name: Fetch writer App key to a tempfile
         run: |
@@ -2762,10 +2775,10 @@ jobs:
             objects.githubusercontent.com:443
             registry.opentofu.org:443
             sts.amazonaws.com:443
-            s3.us-east-1.amazonaws.com:443
-            tfstate-millsymills-com.s3.us-east-1.amazonaws.com:443
-            secretsmanager.us-east-1.amazonaws.com:443
-            kms.us-east-1.amazonaws.com:443
+            s3.us-west-1.amazonaws.com:443
+            tfstate-millsymills-025507317036.s3.us-west-1.amazonaws.com:443
+            secretsmanager.us-west-1.amazonaws.com:443
+            kms.us-west-1.amazonaws.com:443
 
       - name: Checkout
         uses: actions/checkout@<PIN-SHA>
@@ -2781,7 +2794,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@<PIN-SHA>
         with:
           role-to-assume: arn:aws:iam::<ACCT>:role/gha-millsymills-org-tofu-drift
-          aws-region: us-east-1
+          aws-region: us-west-1
 
       - name: Fetch writer App key to a tempfile
         run: |
@@ -2918,7 +2931,7 @@ variable "github_app_pem_file" {
 
 variable "aws_region" {
   type    = string
-  default = "us-east-1"
+  default = "us-west-1"
 }
 ```
 
@@ -3454,7 +3467,7 @@ After CI is verified working end-to-end:
 Test:
 
 ```bash
-aws s3api put-bucket-policy --bucket tfstate-millsymills-com --policy '{}' 2>&1
+aws s3api put-bucket-policy --bucket tfstate-millsymills-025507317036 --region us-west-1 --policy '{}' 2>&1
 ```
 
 Expected: `AccessDenied`.

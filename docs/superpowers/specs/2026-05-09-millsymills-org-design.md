@@ -70,7 +70,7 @@ Alternatives considered and rejected:
                                │
 ┌─────────────────────────────────────────────────────────────────────┐
 │  AWS account (shared with personal infra)                           │
-│  ├── S3 bucket "tfstate-millsymills-com" (KMS-encrypted, versioned) │
+│  ├── S3 bucket "tfstate-millsymills-<acct>" (KMS-encrypted, versioned) │
 │  ├── KMS key  alias/tfstate-millsymills                             │
 │  ├── Secrets Manager:                                               │
 │  │     github-app-key/millsymills-org-bot-writer                    │
@@ -484,7 +484,7 @@ GitHub App all exist. Order of operations from "empty directory" to "CI-driven o
 
 ### Phase 1 — AWS bootstrap (`bootstrap/aws-bootstrap.sh`)
 Idempotent shell script (or small Tofu config with **local** state in `bootstrap/`) that creates:
-- S3 bucket `tfstate-millsymills-com` — versioned, public-block, KMS-SSE, TLS-only bucket policy, deny non-KMS-encrypted writes.
+- S3 bucket `tfstate-millsymills-<acct>` (deployed: `tfstate-millsymills-025507317036`) — versioned, public-block, KMS-SSE, TLS-only bucket policy, deny non-KMS-encrypted writes.
 - KMS key `alias/tfstate-millsymills` — annual rotation, 30-day deletion window.
 - IAM OIDC provider for `token.actions.githubusercontent.com`.
 - IAM roles `gha-…-tofu-{plan,apply,drift}` with the trust + permission policies from Section 5.
@@ -537,7 +537,7 @@ Also: Org → Settings → Actions → set the OIDC subject template to include 
 
 | Phase | Verification |
 |---|---|
-| 1 | `aws sts get-caller-identity`; `aws s3 ls tfstate-millsymills-com`; `aws iam get-role …` |
+| 1 | `aws sts get-caller-identity`; `aws s3 ls tfstate-millsymills-025507317036 --region us-west-1`; `aws iam get-role …` |
 | 2 | `curl -H "Authorization: Bearer $JWT" https://api.github.com/app` returns the App |
 | 3 | `tofu show` matches expectations; `tofu plan` is empty after apply |
 | 4 | Drift workflow green via OIDC; PR plan comment posts |
