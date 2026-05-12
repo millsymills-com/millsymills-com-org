@@ -11,7 +11,12 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: terraform
-    directory: /
+    directories:
+      - /
+      - /modules/org-baseline
+      - /modules/repo-baseline
+      - /modules/ruleset-default-branch
+      - /modules/ruleset-tag-protection
     schedule:
       interval: weekly
     cooldown:
