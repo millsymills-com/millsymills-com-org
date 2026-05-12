@@ -3675,6 +3675,19 @@ Type / name consistency:
 - **Solo-dev required-reviewer:** `required_approving_review_count = 0` because GitHub Free + solo dev. Plan 2 adds an environment-protection rule on `tofu-apply` that requires manual approval as a defense-in-depth substitute.
 - **No SLSA-3 attestation in Plan 1:** SBOM + provenance attestation is set up in Plan 2 alongside the portfolio repos (which are the things that release artifacts).
 - **`millsymills.com` tie-in not addressed:** Plan 2.
+- **PR-modified workflow can short-circuit the `tofu / gate` required status check.**
+  Surfaced during the post-Task-18 adversarial review. An internal PR that edits
+  `.github/workflows/tofu-plan.yml` can rename or stub the `gate` job — GitHub
+  resolves the required check by check-run name on the PR's own workflow file,
+  so the mutated version is what runs. The IAM trust policy still pins
+  `job_workflow_ref` to `refs/heads/main`, so the attacker cannot mint AWS
+  credentials; the gate-bypass alone only lets a bad `.tf` change merge without
+  a real plan, where the next apply on `main` would then process it.
+  Solo-owner threat model accepts the residual risk (no second account can open
+  such a PR). Mitigations deferred to Plan 2: (a) `.github/workflows/`
+  CODEOWNERS + required-review once non-solo, or (b) move the comment-posting
+  and gate logic into a `workflow_run` workflow stored only on `main`, so the
+  PR cannot edit it. Tracked here so the next executor doesn't re-discover it.
 
 ---
 
