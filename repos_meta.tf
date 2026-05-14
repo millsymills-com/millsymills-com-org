@@ -65,10 +65,26 @@ resource "github_repository_environment_deployment_policy" "tofu_drift_main" {
 }
 
 # Required-status-checks ruleset on the management repo's default branch.
-# Context strings are JOB names, not "<workflow> / <job>" — plan-1 v5 spec
-# specified the latter but GitHub's check-runs API surfaces just the job
-# name, and that's what ruleset matching compares against. Verified via
-# `gh api repos/.../check-runs` on the canary PR before applying.
+#
+# Context strings are bare JOB names, not the "<workflow> / <job>" form the
+# PR UI renders. GitHub's check-runs API returns just the job name, and that
+# is what the ruleset matcher compares against — verified empirically:
+#
+#   $ gh api repos/millsymills-com/millsymills-com-org/commits/<SHA>/check-runs \
+#       --jq '.check_runs[].name' | sort -u
+#   actionlint
+#   analyze (actions)
+#   CodeQL
+#   gate
+#   gitleaks
+#   plan
+#   validate
+#   zizmor
+#
+# Confirmed against the head commits of PRs #14 (c6e82c9) and #17 (5e04911)
+# on 2026-05-14. Plan-1 v5 spec specified "<workflow> / <job>"; the empirical
+# pivot is intentional. If a workflow's job `name:` changes, the matching
+# `context = "…"` here must change in lockstep.
 resource "github_repository_ruleset" "management_repo_checks" {
   name        = "management-repo-checks"
   repository  = module.management_repo.name
