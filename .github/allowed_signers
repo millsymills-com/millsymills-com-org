@@ -1,0 +1,8 @@
+# OpenSSH allowed-signers file consumed by `git verify-tag` via
+# `gpg.ssh.allowedSignersFile`. The release workflow points git at this file
+# before verifying a `v*` tag object. Adding a key here grants release-tag
+# signing authority; removing one revokes it. Keep one principal per line.
+#
+# Format: <principal> [namespaces="git"] <key-type> <base64-key>
+# Principals are matched against the tagger identity in the signed tag object.
+andyandymillsmills@gmail.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+VDVOGDiHRRTtTsMBcf24S5KiJqEUXDoXUjuDh/RAF
