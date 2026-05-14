@@ -14,8 +14,10 @@ permissions:
   contents: read
 
 concurrency:
-  # Do not cancel an in-flight verification of a sibling tag; each tag push
-  # gets its own ref and runs to completion.
+  # Serializes verifies against the same tag ref. Sibling tags already run in
+  # separate groups via the per-ref key; cancel-in-progress=false guards the
+  # rare case of a v* ref being recreated (delete+push) while a previous
+  # verify is in flight, so the new run waits rather than racing.
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
@@ -41,7 +43,6 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-          ref: ${{ github.ref }}
 
       - name: Configure allowed signers
         run: git config gpg.ssh.allowedSignersFile .github/allowed_signers
