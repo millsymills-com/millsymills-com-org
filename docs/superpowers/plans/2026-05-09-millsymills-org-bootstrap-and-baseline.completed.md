@@ -44,11 +44,6 @@ Final commit before this note: `5d75c13`
 
 ## What is deliberately deferred (Plan-2 / followup)
 
-- **Both org rulesets remain in `enforcement = "evaluate"`** rather than
-  `"active"`. The plan's intent (Tasks 14/15) was to flip after a full week
-  of rule-insights observation and at least one exercise of the release
-  flow. Today is the day after the rulesets were applied; the flip is a
-  separate one-line Tofu change once observation is complete.
 - **Signed-tag enforcement** in the release workflow (Plan-2). The
   tag-protection ruleset blocks update/delete on `v*` tags but does not
   enforce signed tag *objects*; that gate moves into a release workflow that
@@ -98,6 +93,7 @@ Final commit before this note: `5d75c13`
 - Plan 2: portfolio repos (`.github` org profile, `controls-as-code`,
   `terraform-aws-baseline`, `incident-response-runbooks`) and their content
   (READMEs, ADRs, runbooks). Voice/personality work informed by `p41m0n.com`.
-- The two evaluate-mode rulesets remain to be flipped to active.
+- Both org rulesets are now in `enforcement = "active"` (flipped on
+  YYYY-MM-DD via PR #16, after a full week of evaluate-mode observation).
 - The bootstrap script's lockdown is reversible only via `--force` and a
   new runbook entry; treat re-runs as a deliberate, auditable change.
