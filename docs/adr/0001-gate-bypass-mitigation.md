@@ -18,15 +18,21 @@ The solo-owner threat model currently accepts this gap. It is recorded as a Plan
 
 Adopt the `workflow_run` pattern.
 
-Add a main-only workflow — call it `gate-verified.yml` — triggered by `workflow_run` on completion of `tofu-plan.yml`. Because `workflow_run` workflows are read from the default branch, a PR cannot edit them. The workflow fetches the triggering run's conclusion via the GitHub API, asserts `conclusion == "success"`, and reports a check named `gate-verified` back to the PR head SHA.
+Add a main-only workflow — call it `gate-verified.yml` — triggered by `workflow_run` on completion of `tofu-plan.yml`. Because `workflow_run` workflows are read from the default branch, a PR cannot edit them. The workflow does three things, in this order:
 
-Rename the ruleset's required-status-check from `gate` to `gate-verified`. The existing `gate` job stays in place as defense-in-depth; it still catches naive bypass attempts and remains useful as the in-workflow signal that produces the conclusion `gate-verified` reads.
+1. Fetches the triggering run's full job list via `GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs`.
+2. Asserts that the job list contains a job named exactly `gate` AND its `conclusion == "success"`. A missing `gate` job, a rename, a `skipped`/`cancelled` conclusion, or a `failure` conclusion all fail the assertion.
+3. Reports a check-run named `gate-verified` back to the PR head SHA — `success` if the assertion holds, `failure` otherwise.
 
-Rollout follows Plan-1's evaluate-then-enforce pattern: first add `gate-verified` to the ruleset's required checks alongside `gate` (additive, both required), observe for one week, then drop `gate` from the required list in a follow-up PR.
+The job inside `gate-verified.yml` is named `gate-verified` so the ruleset's required-status-check match — which compares against job name, not `"<workflow> / <job>"` — works without further qualification.
+
+Rename the ruleset's required-status-check from `gate` to `gate-verified`. The existing `gate` job stays in place as the in-workflow signal that `gate-verified` reads. Removing, renaming, or stubbing it is the exact bypass class the assertion catches.
+
+Rollout follows Plan-1's evaluate-then-enforce pattern: first add `gate-verified` alongside `gate` in the ruleset's required checks (both required), observe for one week, then drop `gate` from the required list in a follow-up PR.
 
 ## Consequences
 
-- A PR with legitimate workflow changes still passes the gate, because `gate-verified` reads the actual run conclusion. Workflow edits that break the plan job correctly fail the gate.
+- A PR with legitimate workflow changes still passes the gate, because `gate-verified` reads the actual `gate`-job conclusion from the run's job list. Workflow edits that break the `gate` job (or its `needs: [validate, plan]` dependencies) correctly fail the gate.
 - `workflow_run` runs in default-branch context and cannot read PR-supplied secrets. For reading a run conclusion via the GitHub API this is sufficient and preferable: it isolates the gate from anything the PR can influence.
 - Two layers must stay in sync: the ruleset's required-check name and the workflow's check-run name. The ruleset definition in `repos_meta.tf` gets a comment pointing at this ADR so the coupling is visible at the call site.
 - During the additive rollout week, both `gate` and `gate-verified` are required. The merge stays blocked while either check is missing, queued, in-progress, or failing — GitHub treats a not-yet-reported required check as blocking, so the `workflow_run` delay between `tofu-plan` completion and `gate-verified` posting does not create a merge window. After the week, only `gate-verified` is required.
