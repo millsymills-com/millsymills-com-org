@@ -7,6 +7,10 @@
 .terraform.lock.hcl.local
 crash.log
 
+# Module-level lockfiles: root .terraform.lock.hcl is tracked for reproducible
+# CI builds; per-module locks are dev-only artifacts (CI re-inits per workflow).
+modules/**/.terraform.lock.hcl
+
 # Secrets / local
 *.pem
 *.key
