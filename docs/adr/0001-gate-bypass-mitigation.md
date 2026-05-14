@@ -29,14 +29,16 @@ Rollout follows Plan-1's evaluate-then-enforce pattern: first add `gate-verified
 - A PR with legitimate workflow changes still passes the gate, because `gate-verified` reads the actual run conclusion. Workflow edits that break the plan job correctly fail the gate.
 - `workflow_run` runs in default-branch context and cannot read PR-supplied secrets. For reading a run conclusion via the GitHub API this is sufficient and preferable: it isolates the gate from anything the PR can influence.
 - Two layers must stay in sync: the ruleset's required-check name and the workflow's check-run name. The ruleset definition in `repos_meta.tf` gets a comment pointing at this ADR so the coupling is visible at the call site.
-- During the additive rollout week, both `gate` and `gate-verified` are required. A PR that stubs `gate` still fails because `gate-verified` reports `failure` (no successful triggering run). After the week, only `gate-verified` is required.
+- During the additive rollout week, both `gate` and `gate-verified` are required. The merge stays blocked while either check is missing, queued, in-progress, or failing — GitHub treats a not-yet-reported required check as blocking, so the `workflow_run` delay between `tofu-plan` completion and `gate-verified` posting does not create a merge window. After the week, only `gate-verified` is required.
+- A PR that deletes or renames `.github/workflows/tofu-plan.yml` produces no `tofu-plan` run, so the `workflow_run` trigger never fires and `gate-verified` is never posted. The ruleset treats this as a missing required check and blocks merge. Desired behavior; worth naming explicitly.
+- `gate-verified.yml` declares `permissions: checks: write` at the workflow level. `workflow_run` workflows inherit the repo's default workflow permissions, and the rest of the repo's workflows set `contents: read` only, so the new workflow must override. The `GITHUB_TOKEN` in a `workflow_run` context is scoped to the default-branch workflow yet can post check runs against the triggering PR's head SHA — this non-obvious property is what makes the mitigation work.
 - One new workflow file to maintain on `main`. The plumbing is small: a `workflow_run` trigger, one API read, one check-run create.
 
 ## Alternatives considered
 
 - **(a) CODEOWNERS on `.github/workflows/` + required reviews.** Rejected. Required-reviewer enforcement needs more than one maintainer; the same constraint already blocks `require_code_owner_review` on the default-branch ruleset. Revisit if the org gains a second maintainer.
-- **(c) Do nothing.** Rejected. The gap is an explicit Plan-1 known limitation slated for closure in Plan-2; leaving it open contradicts that plan.
-- **(d) GitHub Enterprise "required workflows".** Not applicable. The org is on the Team plan; required workflows are an Enterprise feature.
+- **(b) Do nothing.** Rejected. The gap is an explicit Plan-1 known limitation slated for closure in Plan-2; leaving it open contradicts that plan.
+- **(c) GitHub Enterprise "required workflows".** Not applicable. The org is on the Free plan; required workflows are an Enterprise feature.
 
 ## References
 
