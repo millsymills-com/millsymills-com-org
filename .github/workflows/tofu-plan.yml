@@ -68,6 +68,12 @@ jobs:
         run: tofu validate
 
       - name: tflint
+        # GITHUB_TOKEN lifts `tflint --init`'s plugin-fetch quota from the
+        # 60/hr anonymous IP quota (shared across GHA tenants on the runner's
+        # public IP) to the 5000/hr installation quota. Without it, plugin
+        # installs intermittently 403 on noisy runners. See #24.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tflint --init
           tflint --recursive --format=compact
