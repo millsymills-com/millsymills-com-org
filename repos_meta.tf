@@ -3,11 +3,6 @@ import {
   id = "millsymills-com-org"
 }
 
-import {
-  to = module.management_repo.github_repository_vulnerability_alerts.this
-  id = "millsymills-com-org"
-}
-
 module "management_repo" {
   source = "./modules/repo-baseline"
 

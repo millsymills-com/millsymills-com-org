@@ -90,13 +90,3 @@ module "existing" {
   topics       = each.value.topics
   is_template  = each.value.is_template
 }
-
-# Import existing vulnerability-alert state for repos that previously had
-# alerts enabled via the now-removed inline `vulnerability_alerts` arg on
-# `github_repository`. Without this, the new sibling resource would plan
-# a create on an already-enabled flag (no-op API-wise, but state-noisy).
-import {
-  for_each = local.existing_repos
-  to       = module.existing[each.key].github_repository_vulnerability_alerts.this
-  id       = each.value.name
-}
