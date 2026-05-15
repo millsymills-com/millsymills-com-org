@@ -8,10 +8,12 @@ Org-as-code for the `millsymills-com` GitHub organization. OpenTofu declares org
 
 Design spec: `docs/superpowers/specs/2026-05-09-millsymills-org-design.md`. Plan-1 completion notes: `docs/superpowers/plans/2026-05-09-millsymills-org-bootstrap-and-baseline.completed.md` — read these before making non-trivial changes; they record deviations from the spec and what's been deliberately deferred.
 
+Plan-2 is in flight. ADR-0001 (`workflow_run` mitigation for PR-modifiable gate bypass, issue #13) and ADR-0002 (workflow-mediated signed-tag push, issue #22) are Proposed; their files land in `docs/adr/` when their respective PRs (#15, #32) merge.
+
 ## Architecture
 
 - **State backend** — S3 bucket `tfstate-millsymills-025507317036` in `us-west-1`, KMS-encrypted (`alias/tfstate-millsymills`), native S3 locking (`use_lockfile`). AWS account `025507317036`.
-- **Identities** — two GitHub Apps (`millsymills-org-bot-writer`, `millsymills-org-bot-reader`); private keys live only in AWS Secrets Manager and are fetched to `${RUNNER_TEMP}` at `0600` for each workflow run. Three OIDC-trusted IAM roles: `gha-millsymills-org-tofu-{plan,apply,drift}`, each pinned to its workflow+environment.
+- **Identities** — two GitHub Apps (`millsymills-org-bot-writer`, `millsymills-org-bot-reader`); private keys live only in AWS Secrets Manager and are fetched to `${RUNNER_TEMP}` at `0600` for each workflow run. Three OIDC-trusted IAM roles: `gha-millsymills-org-tofu-{plan,apply,drift}`, each pinned to its workflow+environment. The reader App needs `organization_administration: write` despite being plan-only — `github_organization_ruleset` refresh hits `GET /orgs/{org}/rulesets/{id}` which silently requires `:write` on that endpoint.
 - **Top-level composition** —
   - `org.tf` instantiates `org-baseline` + the two org rulesets (`ruleset-default-branch`, `ruleset-tag-protection`).
   - `repos_existing.tf` instantiates `repo-baseline` for every existing org repo *except* this one. Adding `millsymills-com-org` here would double-manage state — there's an inline comment marking it.
@@ -23,9 +25,9 @@ Design spec: `docs/superpowers/specs/2026-05-09-millsymills-org-design.md`. Plan
 
 - `tofu-plan.yml` deliberately has **no `paths:` filter** — the management repo's required-check ruleset requires the `gate` job to report on every PR, so doc-only PRs would otherwise deadlock the ruleset.
 - The required check `gate` is a synthesizer job (`if: always()`) that encodes "validate must succeed; plan must succeed on internal PRs or be skipped on fork PRs." This closes GitHub's "skipped == passing" loophole. Don't replace it with raw `plan` as a required check, and don't refactor it to use early-exit semantics that change skip-vs-success behavior.
-- Ruleset required-check **contexts are job names**, not `"<workflow> / <job>"`: `gate`, `zizmor`, `gitleaks`, `actionlint`, `analyze (actions)`. GitHub's check-runs API surfaces only the job name, which is what ruleset matching compares against.
+- Ruleset required-check **contexts are job names**, not `"<workflow> / <job>"`: `gate`, `zizmor`, `gitleaks`, `actionlint`, `analyze (actions)`. GitHub's check-runs API surfaces only the job name, which is what ruleset matching compares against. Verified empirically in PR #28 against the head commits of PRs #14 and #17.
 - Org rulesets are currently `enforcement = "evaluate"` (dry-run). The flip to `"active"` is intentionally deferred until ~2026-05-18 after an observation window. Don't flip silently as part of an unrelated change.
-- The management repo's `tofu-plan` OIDC trust is loosened to `tofu-plan.yml@*` because PR refs are `refs/pull/N/merge`; apply/drift stay pinned to `main`. The `repository_owner_id` trust condition was dropped — it silently rejects on this GitHub OIDC provider; `sub` + `repository_id` are used instead.
+- The management repo's `tofu-plan` OIDC trust is loosened to `tofu-plan.yml@*` because PR refs are `refs/pull/N/merge`; apply/drift stay pinned to `main`. The `repository_owner_id` trust condition was dropped from all three live role trust policies — it silently rejects on this GitHub OIDC provider; `sub` + `repository_id` are used instead. The bootstrap script still emits the rejected shape; treat that as known drift until bootstrap is rewritten.
 
 ## Common commands
 
