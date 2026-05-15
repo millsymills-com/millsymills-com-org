@@ -8,7 +8,16 @@ Org-as-code for the `millsymills-com` GitHub organization. OpenTofu declares org
 
 Design spec: `docs/superpowers/specs/2026-05-09-millsymills-org-design.md`. Plan-1 completion notes: `docs/superpowers/plans/2026-05-09-millsymills-org-bootstrap-and-baseline.completed.md` — read these before making non-trivial changes; they record deviations from the spec and what's been deliberately deferred.
 
-Plan-2 is in flight. ADR-0001 (`workflow_run` mitigation for PR-modifiable gate bypass, issue #13) and ADR-0002 (workflow-mediated signed-tag push, issue #22) are Proposed; their files land in `docs/adr/` when their respective PRs (#15, #32) merge.
+Plan-2 ADRs Accepted 2026-05-15:
+
+- **ADR-0001** — `docs/adr/0001-gate-bypass-mitigation.md`. `workflow_run` mitigation for PR-modifiable gate bypass (issue #13). Impl LIVE via `.github/workflows/gate-verified.yml`. Rollout step 2 (additive `gate-verified` required check) is issue #34; step 3 (drop `gate`) is issue #35.
+- **ADR-0002** — `docs/adr/0002-required-signed-tag-check.md`. Workflow-mediated signed-tag push (issue #22). Impl tracked as a three-PR rollout in issue #36; not yet started.
+
+Plan-2 portfolio rollout spec drafted at `docs/superpowers/specs/2026-05-14-millsymills-portfolio-content.md`; gated on ADRs 0003-0006 (issue #46).
+
+## Change flow
+
+PR opens → `tofu-plan` runs (reader App, plan-only OIDC role pinned to the `tofu-plan` GitHub environment) → `gate` synthesizer job encodes "validate must succeed; plan must succeed on internal PRs or be skipped on fork PRs" and is the in-PR required check → `gate-verified.yml` re-asserts `gate` succeeded from `main`'s default-branch context via `workflow_run` and posts a tamper-proof `gate-verified` check (rolled into the required-check set additively per ADR-0001) → ruleset gates merge → `tofu-apply` runs on `main` (writer App, apply OIDC role pinned to `tofu-apply.yml@refs/heads/main`) → nightly `tofu-drift` with `-detailed-exitcode` opens an issue on non-zero.
 
 ## Architecture
 
@@ -25,9 +34,14 @@ Plan-2 is in flight. ADR-0001 (`workflow_run` mitigation for PR-modifiable gate 
 
 - `tofu-plan.yml` deliberately has **no `paths:` filter** — the management repo's required-check ruleset requires the `gate` job to report on every PR, so doc-only PRs would otherwise deadlock the ruleset.
 - The required check `gate` is a synthesizer job (`if: always()`) that encodes "validate must succeed; plan must succeed on internal PRs or be skipped on fork PRs." This closes GitHub's "skipped == passing" loophole. Don't replace it with raw `plan` as a required check, and don't refactor it to use early-exit semantics that change skip-vs-success behavior.
+- `gate-verified.yml` runs on `main` only, listens to `workflow_run` completions of `tofu`, and posts a `gate-verified` check-run after asserting the in-run `gate` job succeeded. This closes the PR-modifiable-workflow bypass — a PR cannot edit a default-branch-only workflow. ADR-0001 captures the threat model; do not move the logic back into `tofu-plan.yml` or weaken the `select(.name == "gate") | .conclusion == "success"` assertion.
 - Ruleset required-check **contexts are job names**, not `"<workflow> / <job>"`: `gate`, `zizmor`, `gitleaks`, `actionlint`, `analyze (actions)`. GitHub's check-runs API surfaces only the job name, which is what ruleset matching compares against. Verified empirically in PR #28 against the head commits of PRs #14 and #17.
 - Org rulesets are currently `enforcement = "evaluate"` (dry-run). The flip to `"active"` is intentionally deferred until ~2026-05-18 after an observation window. Don't flip silently as part of an unrelated change.
 - The management repo's `tofu-plan` OIDC trust is loosened to `tofu-plan.yml@*` because PR refs are `refs/pull/N/merge`; apply/drift stay pinned to `main`. The `repository_owner_id` trust condition was dropped from all three live role trust policies — it silently rejects on this GitHub OIDC provider; `sub` + `repository_id` are used instead. The bootstrap script still emits the rejected shape; treat that as known drift until bootstrap is rewritten.
+
+## Workflows
+
+Ten workflows under `.github/workflows/`: `tofu-plan`, `tofu-apply`, `tofu-drift` (the load-bearing OpenTofu pipeline); `gate-verified` (ADR-0001 mitigation); `release` (post-push tag-signature audit; becomes audit-only once ADR-0002 impl ships); `actionlint`, `codeql`, `gitleaks`, `scorecard`, `zizmor` (supply-chain + workflow security baseline). All inherit the same hardening conventions documented below.
 
 ## Common commands
 
@@ -75,8 +89,13 @@ All `uses:` are pinned to a full commit SHA with a `# vX.Y.Z` comment. Every `ac
 
 When bumping action versions, look up the current stable release; several have already been bumped beyond the design spec for security/compatibility reasons recorded in the Plan-1 completion notes.
 
-## Agent skills (preserved from prior CLAUDE.md)
+## Governance + security policy
+
+- **`CODEOWNERS`** assigns `*` to `@millsmillsymills`. Solo-owner posture; review-headcount-based gates (`require_code_owner_review`, `require_last_push_approval`) stay off in the default-branch ruleset for the same reason — re-enable only after a second maintainer joins.
+- **`SECURITY.md`** routes vulnerability reports through GitHub Security Advisories on this repo, not public issues. 5-business-day initial response, 90-day coordinated disclosure.
+
+## Agent skills
 
 - **Issue tracker** — GitHub Issues at `millsymills-com/millsymills-com-org`. See `docs/agents/issue-tracker.md`.
 - **Triage labels** — canonical five labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-- **Domain docs** — single-context layout: `CONTEXT.md` + `docs/adr/` at repo root if/when they exist. See `docs/agents/domain.md`; proceed silently if those files are absent.
+- **Domain docs** — single-context layout: `docs/adr/` (in use; currently holds ADR-0001 + ADR-0002) plus a `CONTEXT.md` at repo root if a future ADR introduces one. See `docs/agents/domain.md`.
