@@ -104,6 +104,21 @@ resource "github_repository_ruleset" "management_repo_checks" {
       # Encoding it as a single context avoids the "skipped == passing"
       # loophole that would otherwise let fork PRs merge.
       required_check { context = "gate" }
+      # `gate-verified` reads the triggering tofu run's job list from
+      # the default-branch context (workflow_run semantics) and asserts
+      # the `gate` job concluded "success". It closes the skip/rename/
+      # missing-conclusion reopening of the original "skipped == passing"
+      # loophole. It does NOT close PR-side stub-with-success (a job named
+      # `gate` whose body is replaced with a no-op `exit 0`); that residual
+      # is bounded by the apply role's `job_workflow_ref @ refs/heads/main`
+      # IAM pin. See ADR-0001 (docs/adr/0001-gate-bypass-mitigation.md)
+      # *What `gate-verified` catches and does not catch*.
+      #
+      # Required additively for one observation week per ADR-0001
+      # *Rollout status*. Step 3 (issue #35) drops `gate`. Both checks
+      # must remain in sync: the workflow's check-run name (`gate-verified`)
+      # and this context string are the coupling point.
+      required_check { context = "gate-verified" }
       required_check { context = "zizmor" }
       required_check { context = "gitleaks" }
       required_check { context = "actionlint" }

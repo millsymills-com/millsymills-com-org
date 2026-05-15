@@ -2,7 +2,13 @@
 
 ## Status
 
-Proposed.
+Accepted 2026-05-15.
+
+## Rollout status
+
+- **Step 1** — `gate-verified.yml` landed on `main` in PR [#38](https://github.com/millsymills-com/millsymills-com-org/pull/38) on 2026-05-15. Observed posting `gate-verified` check-runs on subsequent PRs (#39, #51); this only validates the posting plumbing, not the anti-stubbing claim, which is out of scope for the assertion as implemented (see *What `gate-verified` catches and does not catch* above).
+- **Step 2** — `gate-verified` added to the management-repo required-check set alongside `gate`. Tracked in issue [#34](https://github.com/millsymills-com/millsymills-com-org/issues/34). Closes the skip/rename/missing-conclusion class; the stub-with-success class remains residual and is bounded by the apply role's `job_workflow_ref @ refs/heads/main` IAM pin. Observation week begins on merge of the step-2 PR.
+- **Step 3** — `gate` dropped from required checks after the observation week passes cleanly. Tracked in issue [#35](https://github.com/millsymills-com/millsymills-com-org/issues/35). Drop is safe because everything `gate` catches on its own (failure or non-skip non-success) is already caught by `gate-verified`'s `conclusion == "success"` assertion.
 
 ## Context
 
@@ -20,7 +26,7 @@ GitHub resolves a required-status-check name against the workflow files on the P
 
 Adopt the `workflow_run` pattern.
 
-Add a main-only workflow — call it `gate-verified.yml` — triggered by `workflow_run` on completion of `tofu-plan.yml`. Because `workflow_run` workflows are read from the default branch, a PR cannot edit them. The workflow does three things, in this order:
+Add a main-only workflow — call it `gate-verified.yml` — triggered by `workflow_run` on completion of the workflow defined in `.github/workflows/tofu-plan.yml` (workflow `name: tofu`). Because `workflow_run` workflows are read from the default branch, a PR cannot edit them. The workflow does three things, in this order:
 
 1. Fetches the triggering run's full job list via `GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs`.
 2. Asserts that the job list contains a job named exactly `gate` AND its `conclusion == "success"`. A missing `gate` job, a rename, a `skipped`/`cancelled` conclusion, or a `failure` conclusion all fail the assertion.
@@ -28,7 +34,16 @@ Add a main-only workflow — call it `gate-verified.yml` — triggered by `workf
 
 The job inside `gate-verified.yml` is named `gate-verified` so the ruleset's required-status-check match — which compares against job name, not `"<workflow> / <job>"` — works without further qualification.
 
-Rename the ruleset's required-status-check from `gate` to `gate-verified`. The existing `gate` job stays in place as the in-workflow signal that `gate-verified` reads. Removing, renaming, or stubbing it is the exact bypass class the assertion catches.
+Add `gate-verified` to the management-repo ruleset's required-status-check set alongside `gate`. The existing `gate` job stays in place as the in-workflow signal that `gate-verified` reads.
+
+### What `gate-verified` catches and does not catch
+
+The mitigation closes the *skipped/missing/renamed* reopening of the original loophole, not all forms of PR-side `gate` mutation. Specifically:
+
+- **Caught.** A PR that renames `gate`, deletes it, removes `if: always()` so it skips, lets `needs:` propagate a `cancelled` result, or otherwise produces a non-`success` conclusion all fail the `conclusion == "success"` assertion and block merge.
+- **Not caught.** A PR that keeps a job *named* `gate` with `if: always()` but replaces its `run:` body (e.g., the validate-result/plan-result check) with a no-op that exits 0. `gate-verified` reads only job *name* and *conclusion* from the run's job list, so a same-name same-success stub satisfies the assertion. This is the residual risk paragraph above. The damage path remains: bad `.tf` change merges → `tofu apply` on `main` runs with apply credentials.
+
+Closing the stub-with-success case requires either content-aware verification of the PR-side workflow file (e.g., compare the `tofu-plan.yml` blob between PR head and `main`, or reconstruct the gate assertion from `main` and run it on the PR's `validate`/`plan` job results) or org-level `required_workflows` paired with a stripped-down callee. Both are larger than the current additive rollout and are deferred. The IAM trust pin on `refs/heads/main` for the apply role bounds residual damage to whatever the apply role can do, not credential theft.
 
 Rollout follows Plan-1's evaluate-then-enforce pattern: first add `gate-verified` alongside `gate` in the ruleset's required checks (both required), observe for one week, then drop `gate` from the required list in a follow-up PR.
 
