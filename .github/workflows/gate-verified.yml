@@ -1,0 +1,97 @@
+name: gate-verified
+
+# Closes the PR-modifiable plan-gate bypass documented in ADR-0001
+# (docs/adr/0001-gate-bypass-mitigation.md). The `tofu` workflow's `gate`
+# job is read from the PR head -- a PR can rename or stub it. This
+# workflow is read from the default branch (workflow_run semantics), so
+# a PR cannot edit it; it asserts the PR's `gate` job concluded success
+# and posts a `gate-verified` check-run back to the PR head SHA.
+#
+# Rollout (per ADR-0001 *Decision* section): land this workflow first,
+# observe it producing `gate-verified` check-runs on a few PRs, then
+# add `gate-verified` to the management-repo ruleset's required checks
+# alongside `gate` for one week before dropping `gate`.
+
+# workflow_run is the WHOLE POINT of this workflow per ADR-0001: the
+# default-branch-only execution context is what makes the gate
+# tamper-proof. The standard workflow_run hazard (treating PR-supplied
+# data as trusted) is avoided here -- no checkout of the PR head, no
+# eval of PR content; only GitHub-emitted run metadata is read, and
+# all run-context fields are passed via `env:` rather than `${{ }}`
+# interpolation inside `run:` blocks.
+on: # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    workflows: [tofu]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  # One verification per SHA. A concurrent rerun of `tofu` on the same
+  # SHA queues rather than races; cancel-in-progress=false avoids losing
+  # an in-flight verification.
+  group: gate-verified-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  gate-verified:
+    name: gate-verified
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      # checks: write -- post the gate-verified check-run.
+      # actions: read -- list jobs of the triggering workflow run.
+      # contents: read -- default, kept explicit.
+      checks: write
+      actions: read
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+
+      - name: Verify gate job succeeded in triggering run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          # Pull all jobs for the triggering tofu run. `--paginate` covers
+          # the unusual case of a rerun adding job records past the first
+          # API page.
+          jobs_json=$(gh api --paginate "repos/${REPO}/actions/runs/${RUN_ID}/jobs")
+
+          # Find the `gate` job's conclusion. "missing" if absent --
+          # which is exactly the bypass class this workflow catches.
+          # types: [completed] on the workflow_run trigger guarantees
+          # every job has settled before this step runs, so .conclusion
+          # is never the JSON null of an in-progress job; any non-success
+          # value (failure, cancelled, skipped, timed_out) maps through
+          # the strict equality check below to a failure check-run.
+          gate_conclusion=$(echo "${jobs_json}" | jq -r '[.jobs[] | select(.name == "gate") | .conclusion] | (first // "missing")')
+
+          if [[ "${gate_conclusion}" == "success" ]]; then
+            conclusion="success"
+            summary="gate job in run ${RUN_ID} concluded success"
+          else
+            conclusion="failure"
+            summary="gate job in run ${RUN_ID}: ${gate_conclusion}"
+          fi
+
+          gh api -X POST "repos/${REPO}/check-runs" \
+            -f name="gate-verified" \
+            -f head_sha="${HEAD_SHA}" \
+            -f status="completed" \
+            -f conclusion="${conclusion}" \
+            -f "output[title]=gate-verified" \
+            -f "output[summary]=${summary}"
+
+          echo "${summary}" >> "${GITHUB_STEP_SUMMARY}"
+          [[ "${conclusion}" == "success" ]]
