@@ -55,5 +55,8 @@ resource "github_organization_ruleset" "default_branch" {
 
   # No bypass_actors. Solo-owner shouldn't have a routine bypass path; if
   # break-glass is ever needed, temporarily set enforcement = "disabled", do
-  # the work, set back to "active". Document that procedure in the runbook.
+  # the work, set back to "active". The procedure (two PRs, audit trail via
+  # rule-suites snapshot before+after, tracking issue) is documented in
+  # docs/runbooks/ruleset-break-glass.md. Do not perform the disable locally;
+  # both flips go through the normal PR + tofu-apply pipeline.
 }

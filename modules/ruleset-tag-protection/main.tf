@@ -29,4 +29,10 @@ resource "github_organization_ruleset" "tag_protection" {
     update   = true
     deletion = true
   }
+
+  # Break-glass: if a corrupt or hostile `v*` tag must be removed and
+  # `deletion = true` is the obstacle, follow the procedure in
+  # docs/runbooks/ruleset-break-glass.md — flip `var.enforcement` to
+  # "disabled" in one PR, do the tag op, restore to "active" in a
+  # second PR. Audit trail via rule-suites snapshot before+after.
 }

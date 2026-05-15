@@ -82,6 +82,7 @@ A real `tofu plan` requires (a) an AWS identity that can read state + KMS-decryp
 - **`advanced_security` is intentionally absent / `false`.** This org is on Free; GitHub silently ignores writes that try to enable GHAS, producing perpetual plan drift. zizmor-action runs with `advanced-security: false` for the same reason.
 - **Solo-owner caveat.** `require_code_owner_review` and `require_last_push_approval` are off in the default-branch ruleset; enabling them would deadlock every owner-authored PR including this repo's own apply pipeline.
 - **Four org settings are unmanaged by the provider** (`members_can_delete_repositories`, `members_can_change_repo_visibility`, `members_can_invite_outside_collaborators`, `members_can_delete_issues`). They live in `scripts/set-extra-org-settings.sh` and must be set via the org's web UI; the script reads current state and flags drift.
+- **Ruleset break-glass.** Org rulesets (default-branch, tag-protection) and the management-repo ruleset have no `bypass_actors` for the human owner. If a legitimate write must happen and a rule is the obstacle, follow `docs/runbooks/ruleset-break-glass.md` — two PRs (disable → work → re-enable), audit trail via pre/post rule-suites snapshot in a tracking issue. Not a routine merge bypass; cost is intentional.
 
 ## GitHub Actions conventions
 
