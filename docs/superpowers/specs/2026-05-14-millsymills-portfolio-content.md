@@ -85,19 +85,31 @@ A portfolio repo is pin-grade when **all** of the following are true:
 - [ ] `SECURITY.md` present (org default workflow via `.github` repo).
 - [ ] At least three ADRs in `docs/adr/`, written for an external reader.
 - [ ] Badges in the order Plan-1 Section 7 specifies: Scorecard → License → "signed". No CI-status badge.
-- [ ] All CI workflows (codeql, scorecard, zizmor, gitleaks, actionlint) green for at least 7 consecutive days.
+- [ ] Plan-1 inherited supply-chain controls present and green, each verifiable from the repo's own workflow files:
+  - **CodeQL** analysis on push + PR (`github/codeql-action`).
+  - **OpenSSF Scorecard** (`ossf/scorecard-action`) on schedule + push, with results published to the Scorecard dashboard.
+  - **zizmor** (`woodruffw/zizmor`) on every workflow change.
+  - **gitleaks** secret scanning on push + PR.
+  - **actionlint** workflow linting on push + PR.
+  - **`step-security/harden-runner`** at the top of every job — `egress-policy: block` for credentialed jobs with an explicit allowlist; `egress-policy: audit` for uncredentialed jobs.
+  - **All `uses:` pinned to a full commit SHA** with a `# vX.Y.Z` trailing comment; `actions/checkout` uses `persist-credentials: false`.
+  - **Dependency Review** (`actions/dependency-review-action`) on every PR.
+  - **SBOM + SLSA-3 provenance** generated for every release artifact (per the release flow in ADR-0002 once it lands).
+  - **Signed-commits ruleset** active on the default branch — inherited from the management repo's `org-baseline` module; no per-repo work to enable.
+- [ ] All of the above workflows green for at least 7 consecutive days.
 - [ ] OpenSSF Scorecard score ≥ 8.0/10. Each below-threshold item has an ADR explaining the deliberate gap.
-- [ ] A signed `v0.1.0` release exists. The release uses the (per ADR-0002) workflow-mediated signing flow once that lands; until then, manual signed tags by the maintainer.
+- [ ] A signed `v0.1.0` release exists. The release uses the (per ADR-0002) workflow-mediated signing flow once that lands.
+  - **Contingent path if ADR-0002 impl (#36) has not merged by pin-grade time:** manual signed tag from the maintainer's laptop using a key whose public part is in `.github/allowed_signers`, plus the existing post-push `release.yml` audit. Note the deviation in the repo's first release ADR and migrate at next release after #36 lands.
 - [ ] Org-profile README's "thread" table entry is filled in with a concrete one-line description.
 
 ### Per-repo bar (in addition to universal)
 
-| Repo | Pin-grade-only criteria |
-|---|---|
-| `.github` | Org-profile README rendered correctly on the org page; default workflow templates referenced from at least one other repo; `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md` ship as org defaults inherited by every new repo |
-| `controls-as-code` | Cross-mapping of NIST CSF + SOC2 + ISO 27001 + CIS in machine-readable YAML; static-site generator emits to GH Pages (deferred if effort > 1 working day); each control has at least one cross-reference to a *file or commit* in another `millsymills-com` repo (no theoretical-only entries) |
-| `terraform-aws-baseline` | One-apply hardened AWS account from a clean state (CloudTrail, GuardDuty, Security Hub, Config, IAM Identity Center, Access Analyzer, S3 public-block, CIS conformance); module tests via `tofu test` + `mock_provider`; smoke-applied against a throwaway AWS account at least once and the apply receipt linked in `docs/` |
-| `incident-response-runbooks` | At least five playbooks covering identity compromise, AWS console compromise, GitHub OIDC role compromise, GitHub App key leak, supply-chain compromise (dep package); tabletop template that produces a fillable Markdown post-mortem; no real incident details — all generalized |
+| Repo | Pin-grade-only criteria | Audience evidence (what 90s of skimming proves) |
+|---|---|---|
+| `.github` | Org-profile README rendered correctly on the org page; default workflow templates referenced from at least one other repo; `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md` ship as org defaults inherited by every new repo | **Recruiter:** owner runs a real org with an attention-to-detail front door, not a personal account with stray repos. **CISO:** vulnerability-disclosure surface exists and is unambiguous. |
+| `controls-as-code` | Cross-mapping of NIST CSF + SOC2 + ISO 27001 + CIS in machine-readable YAML; static-site generator emits to GH Pages (deferred if effort > 1 working day); each control has at least one cross-reference to a *file or commit* in another `millsymills-com` repo (no theoretical-only entries) | **CISO:** owner can talk to a control framework and prove implementation from code, not slides. **Client:** controls catalog is the kind of artifact a consultant would deliver as an audit baseline. |
+| `terraform-aws-baseline` | One-apply hardened AWS account from a clean state (CloudTrail, GuardDuty, Security Hub, Config, IAM Identity Center, Access Analyzer, S3 public-block, CIS conformance); module tests via `tofu test` + `mock_provider`; smoke-applied against a throwaway AWS account at least once and the apply receipt linked in `docs/` | **Recruiter (DevSecOps role):** owner ships IaC that actually applies, with tests and a receipt. **Client:** module is reusable as a starter for a new AWS account. |
+| `incident-response-runbooks` | At least five playbooks covering identity compromise, AWS console compromise, GitHub OIDC role compromise, GitHub App key leak, supply-chain compromise (dep package); tabletop template that produces a fillable Markdown post-mortem; no real incident details — all generalized | **CISO:** owner has thought through GitHub-org-specific compromise paths most security programs ignore. **Recruiter (security-engineering role):** runbooks are detailed enough to use, not survey-level. |
 
 ## Section 4 — Voice & content guardrails *(restated from Plan-1 + extended)*
 
@@ -105,8 +117,9 @@ Plan-1 Section 7 covers voice. Plan-2 additions:
 
 - **Read every page back as a recruiter who has 90 seconds.** If the first 200 words do not state what the repo is, who it serves, and what they can copy, rewrite.
 - **No `gh-pages` site without two-week soak.** Static sites attract crawlers and inbound links; if they go down or rot, that is the most visible failure mode in the portfolio. Soak in `gh-pages` branch + PR-preview before merging to the published path.
-- **Forbidden patterns (`p41m0n.com` mirror):**
+- **Forbidden patterns (`p41m0n.com` mirror, extended to match global voice rules):**
   - No "passionate", "robust", "comprehensive", "elegant", "best-in-class", "leverage" (as verb).
+  - No "critical", "crucial", "essential", "significant" applied to anything that is not literally a critical-severity finding.
   - No emoji except where they are functional UI affordances (checkboxes are fine; ✨ is not).
   - No "thanks to my employer" anywhere. No "views are my own" disclaimer either — it draws attention.
 - **Allowed:** dry humor, footnotes referencing controls, code blocks with `# why:` comments, exhibits-as-receipts.
@@ -129,7 +142,7 @@ Hard threshold: **if total maintenance > 4 hours/month across all repos, defer t
 
 | Risk | Mitigation |
 |---|---|
-| **Stale content makes the portfolio look abandoned.** A 6-month-old `terraform-aws-baseline` that doesn't acknowledge a new AWS Security Hub control is worse than not having it. | Quarterly content refresh on the cadence above. Each repo has a `LAST_REVIEWED` line at the bottom of its README; nightly drift posts an issue if that date is > 120 days old. |
+| **Stale content makes the portfolio look abandoned.** A 6-month-old `terraform-aws-baseline` that doesn't acknowledge a new AWS Security Hub control is worse than not having it. | Quarterly content refresh on the cadence above. Each repo has a `LAST_REVIEWED` line at the bottom of its README; nightly drift posts an issue if that date is > 120 days old. **Sunset policy:** if `LAST_REVIEWED` exceeds 180 days **and** no maintenance PR has merged in the prior 90 days, un-pin the repo and add a `unmaintained` topic. At 365 days exceeded, archive the repo with a redirect ADR explaining the decision. Pre-empts the worst failure mode — pinned-but-rotting — by forcing a visible state change before the rot is externally noticed. |
 | **ToB adjacency creeps in.** Threat-modeling content, fuzzing examples, or binary-analysis snippets drift toward employer turf as the corpus grows. | Pre-publish review on every PR that adds content: "would this exact framing be a ToB blog post or commercial demo?" If yes, reframe or cut. |
 | **Static site (GH Pages) outage.** Custom-domain Pages on `controls.millsymills.com` (Plan-1 open question) becomes a visible-broken artifact if Pages goes down or DNS rots. | Defer custom domain until `controls-as-code` is pin-grade. Until then, use the default `*.github.io` URL. |
 | **Signing key for tag-object enforcement (ADR-0002) blocks releases.** A lost or wrong-permission SSH signing key blocks every portfolio release. | Provisioning runbook updated as part of ADR-0002 impl (#36); key + public-key entry in `.github/allowed_signers` reviewed annually. |
@@ -146,6 +159,17 @@ Plan-2 is complete when:
 - [ ] `millsymills.com` ↔ org cross-links are live (`/work` page on `millsymills.com` mirrors pinned repos).
 - [ ] `LAST_REVIEWED` dates ≤ 90 days old on every pin-grade repo.
 - [ ] One quarter of clean maintenance has elapsed since the fourth pin.
+
+## Section 8 — ADRs to file alongside this spec *(new)*
+
+Plan-1 set the precedent that non-obvious org-level decisions land as ADRs in `docs/adr/`. Plan-2 inherits the same rule. Four decisions in *this* spec qualify and must be filed as separate ADR PRs before the spec is moved from `draft` to `accepted`:
+
+- **ADR-0003 — Plan-2 MVP repo set.** Rationale: why these four (`.github`, `controls-as-code`, `terraform-aws-baseline`, `incident-response-runbooks`), and why not the held-back four (`mac-mdm-baselines`, `security-awareness-trainings`, `threat-models`, `detection-rules`) until the MVP holds for a quarter.
+- **ADR-0004 — Public-only posture.** Rationale: every portfolio repo is public from creation; no `.github-private` companion. The portfolio is the artifact a stranger evaluates, so anything not public is invisible.
+- **ADR-0005 — `millsymills.com` stays separate.** Rationale: the site is a separate codebase and not absorbed into a GitHub-Pages org site. Cross-linked from `.github`'s org-profile README and from `/work` on the site. Decouples site styling/CMS choices from the org's IaC.
+- **ADR-0006 — Maintenance budget cap (≤ 4 hours/month).** Rationale: explicit numeric ceiling because sustainability beats new-repo throughput. Document the trigger that pauses new-repo work and the unwind procedure.
+
+Each ADR PR is independent of this spec PR and of the others. They can be reviewed and accepted in any order; this spec moves to `accepted` only after all four ADRs are merged or explicitly deferred.
 
 ## Open questions / unresolved
 
