@@ -2,7 +2,13 @@
 
 ## Status
 
-Proposed.
+Accepted 2026-05-15.
+
+## Rollout status
+
+- **Step 1** — `gate-verified.yml` landed on `main` in PR [#38](https://github.com/millsymills-com/millsymills-com-org/pull/38) on 2026-05-15. Observed posting `gate-verified` check-runs successfully on subsequent PRs (#39, #51).
+- **Step 2** — `gate-verified` added to the management-repo required-check set alongside `gate`. Tracked in issue [#34](https://github.com/millsymills-com/millsymills-com-org/issues/34). Observation week begins on merge of the step-2 PR.
+- **Step 3** — `gate` dropped from required checks after the observation week passes cleanly. Tracked in issue [#35](https://github.com/millsymills-com/millsymills-com-org/issues/35).
 
 ## Context
 

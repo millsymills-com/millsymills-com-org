@@ -104,6 +104,15 @@ resource "github_repository_ruleset" "management_repo_checks" {
       # Encoding it as a single context avoids the "skipped == passing"
       # loophole that would otherwise let fork PRs merge.
       required_check { context = "gate" }
+      # `gate-verified` is the workflow_run-mediated re-assertion of the
+      # same gate condition, read from `main` and therefore unreachable
+      # by PR-side edits. Required additively for one observation week
+      # per ADR-0001 (docs/adr/0001-gate-bypass-mitigation.md) *Decision*
+      # → *rollout* section. Step 3 drops `gate` once `gate-verified` has
+      # demonstrated clean operation. Both checks must remain in sync:
+      # the workflow's check-run name (`gate-verified`) and this context
+      # string are the coupling point.
+      required_check { context = "gate-verified" }
       required_check { context = "zizmor" }
       required_check { context = "gitleaks" }
       required_check { context = "actionlint" }
