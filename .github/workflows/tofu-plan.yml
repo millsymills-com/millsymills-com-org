@@ -9,6 +9,7 @@ on:
     # the required check. Cost is ~30s of validate per PR; tofu plan
     # short-circuits to "no changes" when no .tf files differ.
 
+# CANARY MODIFICATION (PR #63 — see https://github.com/millsymills-com/millsymills-com-org/issues/53 ; this commit will not be merged).
 # Workflow-level permissions are read-only by default. Jobs that need write
 # scopes or OIDC tokens declare them explicitly. This stops the uncredentialed
 # validate job from inheriting any token capability that PR-controlled code
