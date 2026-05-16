@@ -9,6 +9,20 @@ Accepted 2026-05-15.
 - **Step 1** — `gate-verified.yml` landed on `main` in PR [#38](https://github.com/millsymills-com/millsymills-com-org/pull/38) on 2026-05-15. Observed posting `gate-verified` check-runs on subsequent PRs (#39, #51); this only validates the posting plumbing, not the anti-stubbing claim, which is out of scope for the assertion as implemented (see *What `gate-verified` catches and does not catch* above).
 - **Step 2** — `gate-verified` added to the management-repo required-check set alongside `gate`. Tracked in issue [#34](https://github.com/millsymills-com/millsymills-com-org/issues/34). Closes the skip/rename/missing-conclusion class; the stub-with-success class remains residual and is bounded by the apply role's `job_workflow_ref @ refs/heads/main` IAM pin. Observation week begins on merge of the step-2 PR. Verified end-to-end on 2026-05-15 via the canary PR [#57](https://github.com/millsymills-com/millsymills-com-org/pull/57) (deleted `.github/workflows/tofu-plan.yml`; CI rollup showed `gate` + `gate-verified` both absent, `mergeStateStatus: "BLOCKED"`; PR closed unmerged). Issue [#50](https://github.com/millsymills-com/millsymills-com-org/issues/50) tracked the canary.
 - **Step 3** — `gate` dropped from required checks after the observation week passes cleanly. Tracked in issue [#35](https://github.com/millsymills-com/millsymills-com-org/issues/35). Drop is safe because everything `gate` catches on its own (failure or non-skip non-success) is already caught by `gate-verified`'s `conclusion == "success"` assertion.
+- **Step 4** — `gate-verified.yml` extended with a blob-compare + label-exception check that closes the stub-with-success residual for unlabeled PRs. Tracked in issue [#53](https://github.com/millsymills-com/millsymills-com-org/issues/53). New label: `workflow-update`. Verified end-to-end via canary PRs analogous to PR #57.
+
+## Operational mechanics — `workflow-update` label
+
+The `workflow-update` label is the maintainer-driven exception path for legitimate `tofu-plan.yml` updates (e.g., an action version bump, an egress-allowlist change). The flow:
+
+1. Open the PR that modifies `tofu-plan.yml`. The first `gate-verified` run after the `tofu` workflow completes will **fail** check 2 because the label is not yet applied.
+2. Apply the `workflow-update` label to the PR. Labels do not retrigger `workflow_run`, so the previous `gate-verified` check-run stays in its failed state until a fresh `tofu` run produces a new completion event.
+3. Trigger a fresh `tofu` run for the same head SHA — either push an empty commit (`git commit --allow-empty -m "trigger gate-verified re-eval"`) or rerun the latest `tofu` workflow run from the Actions tab. The new `tofu` completion fires `workflow_run` → `gate-verified` re-evaluates → check 2 now passes because the label is present.
+4. Merge normally once check 1 (gate-conclusion) and check 2 (workflow-content with label) both pass.
+
+The label is repository-scoped state, not declared in tofu. It should be created with a description that names this ADR. If the label is renamed or deleted, the check-2 logic in `gate-verified.yml` must be updated in lockstep — the label name is hardcoded.
+
+Removing the label on an open PR is also load-bearing — if a reviewer un-labels the PR, a subsequent `tofu` run will fail check 2 and re-block the merge. Treat un-labeling as the rollback path for a wrongly-labeled PR.
 
 ## Context
 
@@ -38,12 +52,20 @@ Add `gate-verified` to the management-repo ruleset's required-status-check set a
 
 ### What `gate-verified` catches and does not catch
 
-The mitigation closes the *skipped/missing/renamed* reopening of the original loophole, not all forms of PR-side `gate` mutation. Specifically:
+The mitigation runs two checks in sequence and posts a single combined `gate-verified` check-run. Both checks must pass.
 
-- **Caught.** A PR that renames `gate`, deletes it, removes `if: always()` so it skips, lets `needs:` propagate a `cancelled` result, or otherwise produces a non-`success` conclusion all fail the `conclusion == "success"` assertion and block merge.
-- **Not caught.** A PR that keeps a job *named* `gate` with `if: always()` but replaces its `run:` body (e.g., the validate-result/plan-result check) with a no-op that exits 0. `gate-verified` reads only job *name* and *conclusion* from the run's job list, so a same-name same-success stub satisfies the assertion. This is the residual risk paragraph above. The damage path remains: bad `.tf` change merges → `tofu apply` on `main` runs with apply credentials.
+**Check 1 — gate-conclusion.** The triggering `tofu` run's job list is fetched via `GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs`. The first job whose `name` is exactly `gate` must have `conclusion == "success"`. A missing `gate` job, a rename, a `skipped`/`cancelled` conclusion, or a `failure` conclusion all fail this check.
 
-Closing the stub-with-success case requires either content-aware verification of the PR-side workflow file (e.g., compare the `tofu-plan.yml` blob between PR head and `main`, or reconstruct the gate assertion from `main` and run it on the PR's `validate`/`plan` job results) or org-level `required_workflows` paired with a stripped-down callee. Both are larger than the current additive rollout and are deferred. The IAM trust pin on `refs/heads/main` for the apply role bounds residual damage to whatever the apply role can do, not credential theft.
+**Check 2 — workflow-content.** The blob SHA of `.github/workflows/tofu-plan.yml` at the PR head is compared against the same blob's SHA on `main` via `GET /repos/{owner}/{repo}/contents/.github/workflows/tofu-plan.yml?ref=...`. If they match, the check passes. If they differ, the workflow looks up the open PR for the head SHA (`GET /repos/{owner}/{repo}/commits/{sha}/pulls`) and checks for the label `workflow-update`. If present, the check passes with a maintainer-exception note. If absent, the check fails.
+
+Combined scope:
+
+- **Caught.** PR-side renames or deletions of the `gate` job (check 1). PR-side modifications to `tofu-plan.yml` that do not also bear the `workflow-update` label, including the stub-with-success bypass shape where the PR keeps a job named `gate` but replaces its `run:` body with a no-op `exit 0` (check 2).
+- **Not caught (residual).** A PR labeled `workflow-update` that modifies `tofu-plan.yml`. The label exception bounds the residual to PRs a maintainer has deliberately authorized; the trust assumption is "whoever can apply the label can also remove the rule entirely." On the current solo-owner posture this is a single principal. The damage path if a maintainer mis-uses the label is: a same-SHA-of-tampered-tofu-plan.yml PR merges; the next on-`main` `tofu apply` runs against the merged code; bounded by what the apply role can do in AWS + GitHub.
+
+The label-bypass mechanism solves the deadlock that pure blob-equality would create (legitimate workflow updates must be possible) at the cost of moving the trust boundary from "PR content" to "label application." That trade is acceptable on a solo-owner repo and should be reviewed if the org gains additional maintainers.
+
+The fully-architectural alternative — moving the gate logic into an org-level `required_workflows` callee read from a separate controls surface so no PR in any consuming repo can modify the workflow — is recorded as a long-term direction in alternative (d) and remains a deferred option if the label-bypass surface ever proves insufficient.
 
 Rollout follows Plan-1's evaluate-then-enforce pattern: first add `gate-verified` alongside `gate` in the ruleset's required checks (both required), observe for one week, then drop `gate` from the required list in a follow-up PR.
 
