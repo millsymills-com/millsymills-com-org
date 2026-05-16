@@ -38,6 +38,17 @@ repos:
         files: \.tf$
         pass_filenames: false
 
+      # Plan completed-docs must never contain literal `YYYY-MM-DD`
+      # placeholder strings — those leak intent and signal that a date
+      # field was never filled in. Issue #43.
+      - id: forbid-yyyy-mm-dd-placeholder
+        name: forbid YYYY-MM-DD placeholder in completed plan docs
+        entry: >-
+          bash -c 'if grep -nE "YYYY-MM-DD" "$@"; then echo "ERROR
+          - YYYY-MM-DD placeholder above. Fill in actual date before commit." >&2; exit 1; fi' --
+        language: system
+        files: ^docs/superpowers/plans/.*\.completed\.md$
+
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.7
     hooks:
