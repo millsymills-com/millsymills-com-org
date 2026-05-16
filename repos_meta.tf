@@ -97,27 +97,28 @@ resource "github_repository_ruleset" "management_repo_checks" {
     required_status_checks {
       strict_required_status_checks_policy = true
 
-      # `gate` is the synthesizer job in tofu-plan.yml (`if: always()`) that
-      # depends on validate + plan and asserts the conditional rule:
-      #   - validate must succeed (every PR)
-      #   - plan must succeed (internal PR) or be skipped (fork PR)
-      # Encoding it as a single context avoids the "skipped == passing"
-      # loophole that would otherwise let fork PRs merge.
-      required_check { context = "gate" }
-      # `gate-verified` reads the triggering tofu run's job list from
-      # the default-branch context (workflow_run semantics) and asserts
-      # the `gate` job concluded "success". It closes the skip/rename/
-      # missing-conclusion reopening of the original "skipped == passing"
-      # loophole. It does NOT close PR-side stub-with-success (a job named
-      # `gate` whose body is replaced with a no-op `exit 0`); that residual
-      # is bounded by the apply role's `job_workflow_ref @ refs/heads/main`
-      # IAM pin. See ADR-0001 (docs/adr/0001-gate-bypass-mitigation.md)
-      # *What `gate-verified` catches and does not catch*.
+      # `gate-verified` runs in default-branch context (workflow_run on
+      # completion of the `tofu` workflow) and posts a single combined
+      # check-run that asserts both of:
       #
-      # Required additively for one observation week per ADR-0001
-      # *Rollout status*. Step 3 (issue #35) drops `gate`. Both checks
-      # must remain in sync: the workflow's check-run name (`gate-verified`)
-      # and this context string are the coupling point.
+      #   1. the in-run `gate` job (defined in tofu-plan.yml, runs on
+      #      every PR) concluded `success` — closes the
+      #      skip/rename/missing-conclusion class of PR-side `gate`
+      #      mutation.
+      #   2. the `tofu-plan.yml` blob SHA at the PR head matches main,
+      #      OR the open PR for the head SHA carries the
+      #      `workflow-update` label as an explicit maintainer
+      #      exception — closes the stub-with-success class (PR keeps
+      #      job named `gate` but replaces its body with `exit 0`).
+      #
+      # The in-workflow `gate` job remains in tofu-plan.yml because
+      # check 1 reads its conclusion. Its in-PR `gate` check-run is no
+      # longer required at the ruleset level because `gate-verified`
+      # subsumes every case `gate` alone caught. Dropping `gate` from
+      # this required-check set was step 3 of ADR-0001's rollout
+      # (issue #35). See ADR-0001 (docs/adr/0001-gate-bypass-mitigation.md)
+      # *What `gate-verified` catches and does not catch* +
+      # *Operational mechanics — `workflow-update` label*.
       required_check { context = "gate-verified" }
       required_check { context = "zizmor" }
       required_check { context = "gitleaks" }
