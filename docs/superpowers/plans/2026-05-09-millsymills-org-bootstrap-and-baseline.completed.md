@@ -94,6 +94,6 @@ Final commit before this note: `5d75c13`
   `terraform-aws-baseline`, `incident-response-runbooks`) and their content
   (READMEs, ADRs, runbooks). Voice/personality work informed by `p41m0n.com`.
 - Both org rulesets are now in `enforcement = "active"` (flipped on
-  YYYY-MM-DD via PR #16, after a full week of evaluate-mode observation).
+  2026-05-19 via PR #16, after a full week of evaluate-mode observation).
 - The bootstrap script's lockdown is reversible only via `--force` and a
   new runbook entry; treat re-runs as a deliberate, auditable change.
