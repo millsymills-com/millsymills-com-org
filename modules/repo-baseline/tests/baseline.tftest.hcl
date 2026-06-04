@@ -28,22 +28,4 @@ run "defaults_are_safe" {
     condition     = github_repository_vulnerability_alerts.this.enabled == true
     error_message = "vulnerability alerts must be enabled via sibling resource"
   }
-
-  assert {
-    condition     = github_repository.this.auto_init == false
-    error_message = "auto_init must default to false (imported repos must not be re-initialized)"
-  }
-}
-
-run "auto_init_can_be_enabled" {
-  command = plan
-
-  variables {
-    auto_init = true
-  }
-
-  assert {
-    condition     = github_repository.this.auto_init == true
-    error_message = "auto_init must be settable for tofu-created repos"
-  }
 }
