@@ -47,9 +47,3 @@ variable "archive_on_destroy" {
   type        = bool
   default     = true
 }
-
-variable "auto_init" {
-  description = "If true, create the repo with an initial commit + default branch. Set for repos tofu creates (not imports) so a default branch exists for the org ruleset and PR-based content updates."
-  type        = bool
-  default     = false
-}

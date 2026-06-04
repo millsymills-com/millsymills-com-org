@@ -1,18 +1,16 @@
-# The org profile repo. GitHub renders `profile/README.md` from a public repo
-# named `.github` at the top of the org page. tofu owns the repo *shell* only;
-# the README content lands via a normal PR on the `.github` repo itself (the org
-# default-branch ruleset applies here too, so content is PR-gated like every
-# other repo). `auto_init = true` gives it a default branch at creation so that
-# first content PR has a base to target.
-module "org_profile_repo" {
-  source = "./modules/repo-baseline"
+# The org profile repo (`.github`, renders profile/README.md on the org page)
+# was created out-of-band but its tofu resource was left tainted: the provider's
+# repo-create path PATCHes web_commit_signoff_required, which the org's enforced
+# commit signoff rejects with 422, so the create errored after the repo existed.
+#
+# A tainted resource forces destroy+recreate on every apply, and recreate would
+# both re-hit the 422 and collide on the (archived) name. Forget the tainted
+# entry from state WITHOUT destroying the live repo; it is re-adopted by import
+# in a follow-up once state is clean.
+removed {
+  from = module.org_profile_repo.github_repository.this
 
-  name         = ".github"
-  description  = "Org profile."
-  visibility   = "public"
-  homepage_url = "https://millsymills.com"
-  has_issues   = false
-  topics       = []
-  is_template  = false
-  auto_init    = true
+  lifecycle {
+    destroy = false
+  }
 }
