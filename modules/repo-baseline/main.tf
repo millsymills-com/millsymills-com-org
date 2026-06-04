@@ -7,6 +7,7 @@ resource "github_repository" "this" {
   has_issues   = var.has_issues
   has_wiki     = false
   has_projects = false
+  auto_init    = var.auto_init
 
   delete_branch_on_merge = true
   allow_squash_merge     = true

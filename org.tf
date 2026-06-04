@@ -4,6 +4,9 @@ module "org_baseline" {
   org_name      = var.org_name
   billing_email = "mills@millsymills.com"
   display_name  = "millsymills.com"
+  description   = "MCP servers and security-hardened org-as-code. Built by Andrew Mills."
+  blog          = "https://millsymills.com"
+  location      = "Pacific Northwest — Remote"
 }
 
 module "ruleset_default_branch" {
