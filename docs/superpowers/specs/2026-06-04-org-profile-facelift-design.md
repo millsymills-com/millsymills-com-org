@@ -75,22 +75,44 @@ copy does not belong in the apply cycle, and this avoids any ruleset carve-out.
 Tasteful tech tags (Go, Python, OpenTofu) only if they stay subtle; no badge
 soup.
 
-### 3. Repo polish — `repos_existing.tf`
+### 3. Repo polish + orphan adoption — `repos_existing.tf`
 
-- `shortcut-mcp` — add topics: `mcp`, `mcp-server`, `model-context-protocol`,
-  `python`, `fastmcp`, `shortcut`, `project-management`, `rest-api`.
-- `flipperzero-mcp` — add topics: `mcp`, `mcp-server`,
-  `model-context-protocol`, `python`, `flipper-zero`, `protobuf`, `usb`,
-  `rpc`, `hardware`.
-- `unifi-mcp` — populate description and topics in tofu to **match live**:
-  description `MCP server for UniFi Network, Protect, and Site Manager APIs. 82
-  tools, readonly by default with explicitly gated writes.`; topics `fastmcp`,
-  `mcp`, `model-context-protocol`, `python`, `ubiquiti`, `unifi`,
-  `unifi-network`, `unifi-protect`.
+Discovered during implementation: only **four** public repos were under
+management. `shortcut-mcp` and `flipperzero-mcp` (both public) drifted in after
+the Plan-1 baseline and are **entirely unmanaged** — an orphan public repo
+undercuts the org-as-code story the facelift is selling. Bring them in:
+
+- `shortcut-mcp` — declare (topics `fastmcp`, `mcp`, `mcp-server`,
+  `model-context-protocol`, `project-management`, `python`, `rest-api`,
+  `shortcut`) and **adopt via an `import` block**.
+- `flipperzero-mcp` — declare (topics `flipper-zero`, `hardware`, `mcp`,
+  `mcp-server`, `model-context-protocol`, `protobuf`, `python`, `rpc`, `usb`)
+  and **adopt via an `import` block**.
+- `unifi-mcp` — populate description and topics in tofu to **match live**.
+
+Import uses the same pattern as the management repo in `repos_meta.tf`, so state
+adopts the live repos rather than recreating them; vulnerability alerts stay on.
 
 **Latent bug fixed here:** `unifi-mcp` currently has `description = ""` and
 `topics = []` in tofu while the live repo is populated. The next `tofu apply`
 would silently wipe both. Bringing tofu in line with live closes that.
+
+**Module change:** `repo-baseline` gains an optional `auto_init` input (default
+`false`, no change for existing callers). The new `.github` repo (Section 2)
+sets it `true` so it is born with a default branch; every other repo is imported
+and must not be re-initialized.
+
+**Private repo left out of scope:** `mcp-server-dev-defaults` is private,
+invisible to recruiters, and also unmanaged. Adopting it is unrelated to
+public-facing polish and carries its own risk profile, so it is **not** included
+here — the one remaining IaC gap, a candidate for a separate follow-up.
+
+**Test fix:** the `org-baseline` module test referenced `module.org_baseline`,
+which only resolves at repo root — but the root carries `import` blocks that
+crash a `mock_provider` test run, so the test was effectively un-runnable. It is
+rewritten to assert against `github_organization_settings.this` directly and run
+via `tofu -chdir=modules/org-baseline test`, matching the working `repo-baseline`
+pattern. The now-unused `settings` output is removed.
 
 ### 4. Pinned repos — manual (UI-only), documented
 
