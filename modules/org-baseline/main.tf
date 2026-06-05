@@ -1,6 +1,9 @@
 resource "github_organization_settings" "this" {
   billing_email = var.billing_email
   name          = var.display_name
+  description   = var.description
+  blog          = var.blog
+  location      = var.location
 
   default_repository_permission = "none"
 
