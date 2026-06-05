@@ -54,10 +54,15 @@ tofu init -backend=false -input=false   # local; no AWS needed
 tofu validate
 tflint --init && tflint --recursive --format=compact
 
-# Run all module tests (mock_provider, no API calls)
-tofu test
+# Run module tests (mock_provider, no API calls). Tests live under each
+# module's tests/ dir and run with the module as root, so use -chdir per module.
+# A bare `tofu test` from the repo root finds nothing (no root tests/ dir), and
+# pointing -test-directory at a module from root crashes on the import blocks.
+for m in org-baseline repo-baseline ruleset-default-branch ruleset-tag-protection; do
+  tofu -chdir=modules/$m init -backend=false && tofu -chdir=modules/$m test
+done
 # Run a single module's tests
-tofu test -filter=modules/org-baseline/tests/baseline.tftest.hcl
+tofu -chdir=modules/org-baseline test
 
 # Bootstrap script tests
 bats bootstrap/tests/
