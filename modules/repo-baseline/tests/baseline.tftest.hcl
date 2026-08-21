@@ -20,9 +20,18 @@ run "defaults_are_safe" {
   }
 
   assert {
-    condition     = github_repository.this.allow_merge_commit == false
-    error_message = "merge commits must be disabled (squash only)"
+    condition     = github_repository_vulnerability_alerts.this.enabled == true
+    error_message = "vulnerability alerts must be enabled via sibling resource"
   }
+
+  assert {
+    condition     = github_repository.this.web_commit_signoff_required == true
+    error_message = "web commit signoff must be required"
+  }
+}
+
+run "merge_methods_stay_signable" {
+  command = plan
 
   assert {
     condition     = github_repository.this.allow_squash_merge == true
@@ -37,12 +46,12 @@ run "defaults_are_safe" {
   }
 
   assert {
-    condition     = github_repository.this.allow_auto_merge == true
-    error_message = "auto-merge capability must be on for Renovate platformAutomerge (ADR-0007)"
+    condition     = github_repository.this.allow_merge_commit == false
+    error_message = "merge commits must be disabled (squash only)"
   }
 
   assert {
-    condition     = github_repository_vulnerability_alerts.this.enabled == true
-    error_message = "vulnerability alerts must be enabled via sibling resource"
+    condition     = github_repository.this.allow_auto_merge == true
+    error_message = "auto-merge capability must be on for Renovate platformAutomerge (ADR-0007)"
   }
 }

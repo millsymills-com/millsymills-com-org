@@ -24,7 +24,7 @@ Measured on 2026-08-21 across both accounts (`millsmillsymills`, 71 repos; `mill
 
 The oldest of those configs dates to 2025-08 (`resurgent`); ten of the twelve were added between 2026-04 and 2026-06. Run rate is roughly 120 PRs/month from 12 repos. 37% of PRs raised were closed without merging, which is pure review cost with no landed change. Extending the current arrangement to the 42 uncovered repos would roughly quadruple the volume.
 
-Every one of the twelve existing configs converges on the same policy — `interval: weekly`, `cooldown.default-days: 7`, and one group per ecosystem matching `*` — with two refinements worth preserving:
+Every one of the twelve existing configs converges on the same policy — `cooldown.default-days: 7` and one group per ecosystem matching `*`, on a weekly interval everywhere except this repo, which runs `github-actions` daily — with two refinements worth preserving:
 
 - `unifi-mcp`, `unraid-mcp`, and `gandi-mcp` split dev tooling from runtime dependencies so a test-only bump does not ride along with a shipped one.
 - `resurgent` splits majors into their own PR, with an inline note recording why: a grouped merge carried `docker/metadata-action` v5→v6 through without anyone reading the changelog (its issue #160).
@@ -55,9 +55,9 @@ The alternative mechanism, Renovate's *inherited config*, needs no file in the t
 
 ### 2. Automerge, bounded at the major boundary
 
-`platformAutomerge` (GitHub's native auto-merge) is used rather than Renovate's own merge, so every required check still gates the merge and the merge commit is written and signed by GitHub.
+`platformAutomerge` (GitHub's native auto-merge) is used rather than Renovate's own merge, so the repo's required checks gate the merge and the resulting commit is written and signed by GitHub. This also means the boundary below is only enforced where a repo actually has a required check — see the table under Consequences.
 
-Automerged: patch and minor updates, GitHub Actions digest pins, Docker digest pins, and `lockFileMaintenance`.
+Automerged: patch and minor updates, GitHub Actions digest pins, Docker digest pins, and `lockFileMaintenance`. The last is a deliberate carve-out from the major boundary: `lockFileMaintenance` is its own `updateType`, so the majors rule does not match it and a transitive dependency can cross a major inside one of those PRs. Accepted because the change is confined to the lockfile, no manifest constraint moves, and the required checks are the gate.
 
 Not automerged, ever: major updates, and anything arriving through `vulnerabilityAlerts`. Majors are held because of the `docker/metadata-action` incident above. Security updates are held for a subtler reason, and it is the reason the twelve existing configs all carry a 7-day cooldown, stated in `ubiquiti-research`'s config: "a freshly published version is when a compromised release is most likely to still be live." A security alert is exactly the case where the cooldown must be waived for speed, so waiving the cooldown *and* the human at once would remove both defenses simultaneously. Security fixes therefore skip the cooldown and the weekly window, and wait for a person.
 
@@ -67,7 +67,7 @@ Not automerged, ever: major updates, and anything arriving through `vulnerabilit
 
 `modules/repo-baseline/main.tf` changes two settings for every repo in the org, this management repo included:
 
-- `allow_auto_merge = false` → `true`. Without it `platformAutomerge` has nothing to enqueue. This grants a capability only; auto-merge remains opt-in per pull request and still waits on every required check.
+- `allow_auto_merge = false` → `true`. Without it `platformAutomerge` has nothing to enqueue. This grants a capability only; auto-merge remains opt-in per pull request, and GitHub will only accept the request on a PR that is not already mergeable — so on a repo with no required check it is refused outright rather than merging early.
 - `allow_rebase_merge = true` → `false`. This is a latent bug independent of Renovate. The default-branch ruleset sets `required_signatures`, and GitHub does not sign the commits it writes for a rebase-and-merge — it replays the author's commits, for which it holds no key. A rebase merge therefore lands unverified commits that `required_signatures` rejects, wedging the PR. Renovate v39 reordered its merge-strategy autodiscovery to prefer squash for exactly this reason, but the repo setting is the durable fix and it protects hand-merges too. Squash is left as the only method; merge commits were already off and are separately excluded by `required_linear_history`.
 
 ## Consequences
@@ -94,7 +94,10 @@ Not automerged, ever: major updates, and anything arriving through `vulnerabilit
 - **`.github` holds the preset every other repo extends, and has no required check of its own.** A change there changes automerge policy fleet-wide, so it is the highest-leverage file in this design. Having no required check makes it structurally ineligible for platform auto-merge, per the mechanism above, so the capability grant does not expose it — but that is a side effect, not a control. Do not onboard `.github` to Renovate; it carries no manifests worth updating and the onboarding would only add a path for the bot to touch the policy file. A required check on `.github` is the durable fix and is not in this change.
 - **The `dependencies` label must exist per repo.** The preset labels PRs `dependencies`, which five repos already use. Renovate warns and continues where the label is missing, so this degrades rather than breaks; making it uniform is a separate change to `modules/repo-baseline`.
 - **The twelve `dependabot.yml` files must be deleted as each repo is onboarded**, not left alongside Renovate. Two bots on one manifest means duplicate PRs and races on the same lockfile.
-- The `resurgent` config's `pre-commit` ecosystem has a Renovate equivalent (`pre-commit` manager, opt-in via `config:recommended`); its `pip` ecosystem maps to `pip_requirements` — that repo uses `requirements.txt`, not `uv.lock`, and is the noisiest of the twelve at 168 PRs.
+- The `resurgent` config's `pre-commit` ecosystem has a Renovate equivalent, but the `pre-commit` manager ships disabled and neither `config:recommended` nor `config:best-practices` turns it on — the preset extends `:enablePreCommit` explicitly, or the rule matches nothing and no hook is ever updated. Its `pip` ecosystem maps to `pip_requirements`; that repo uses `requirements.txt`, not `uv.lock`, and is the noisiest of the twelve at 168 PRs.
+- **Two org repos are outside tofu's management and will not receive the baseline change.** `agent-thrawn` and `mcp-server-dev-defaults` are absent from `repos_existing.tf`, so they keep `allow_auto_merge = false` and automerge cannot work there even with a required check. `CLAUDE.md` claims that file covers every org repo except the management repo; it does not. Adopting them by `import` is the fix and is not in this change.
+- **`osvVulnerabilityAlerts` is narrower than "malicious-package detection" suggests.** It is flagged experimental, covers direct dependencies only, and its datasources exclude `github-actions` and `pre-commit` — so it applies to the PyPI and npm surface, not the workflow surface. Its rules carry `force: {...vulnerabilityAlerts}`, so the `automerge: false` above does propagate to them.
+- **The cooldown and the window compound.** `minimumReleaseAge: "7 days"` plus a schedule window means a release lands in the next window at least seven days later; the preset runs Mondays and Thursdays rather than Mondays alone to keep the worst case near a week instead of near two. Community Cloud's one concurrent job per org and four-hour scan interval across ~54 repos means a given repo is not guaranteed to be visited in every window.
 
 ## Alternatives considered
 
