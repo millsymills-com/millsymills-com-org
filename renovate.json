@@ -1,0 +1,16 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["local>millsymills-com/.github:renovate-config"],
+  "packageRules": [
+    {
+      "description": "Actions bumps are never automerged here. gate-verified fails any PR whose .github/workflows/tofu-plan.yml blob differs from main unless a maintainer applies the workflow-update label -- which Renovate cannot do, and which workflow_run does not re-evaluate on labeling. Such a PR blocks rather than bypasses, but it blocks permanently, so it needs a person from the start. See ADR-0007 and ADR-0001.",
+      "matchManagers": ["github-actions"],
+      "automerge": false
+    },
+    {
+      "description": "Provider bumps reach every repo in the org through tofu-apply. The plan output is the review.",
+      "matchManagers": ["terraform", "terraform-version", "tflint-plugin"],
+      "automerge": false
+    }
+  ]
+}
