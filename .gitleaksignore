@@ -1,0 +1,2 @@
+# Synthetic credential-detector test fixture; ignore only this historical finding.
+64cc223d8e4d59a6c04ab8c5a902e6a1b6f5168a:.github/security/test_claude_settings.py:curl-auth-user:37
