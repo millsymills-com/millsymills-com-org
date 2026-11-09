@@ -9,10 +9,22 @@ resource "github_repository" "this" {
   has_projects = false
 
   delete_branch_on_merge = true
-  allow_squash_merge     = true
-  allow_rebase_merge     = true
-  allow_merge_commit     = false
-  allow_auto_merge       = false
+
+  # Squash is the only merge method left on purpose. The default-branch ruleset
+  # sets required_signatures, and GitHub does not sign the commits it writes for
+  # a rebase-and-merge — it replays the author's commits, which it has no key
+  # for. A rebase merge therefore lands unverified commits that the ruleset then
+  # rejects, wedging the PR. Squash and merge-commit are both signed by GitHub;
+  # merge commits are separately excluded by required_linear_history.
+  allow_squash_merge = true
+  allow_rebase_merge = false
+  allow_merge_commit = false
+
+  # Grants the capability only, for Renovate's platformAutomerge (ADR-0007).
+  # GitHub refuses an auto-merge request on a PR that is already mergeable, so
+  # on a repo with no required check this yields no automerge rather than an
+  # instant one.
+  allow_auto_merge = true
 
   is_template                 = var.is_template
   web_commit_signoff_required = true

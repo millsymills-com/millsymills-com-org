@@ -133,7 +133,7 @@ same PR-plan-apply pipeline. Drift gets caught nightly.
 
 ### Per-repo settings (`repo-baseline` module)
 - Default branch `main`, `delete_branch_on_merge = true`
-- `allow_squash_merge = true`, `allow_merge_commit = false`, `allow_rebase_merge = true`
+- `allow_squash_merge = true`, `allow_merge_commit = false`, `allow_rebase_merge = true` — superseded by ADR-0007: rebase merges are off (GitHub does not sign them, so `required_signatures` rejects them) and `allow_auto_merge` is on
 - `vulnerability_alerts = true`, web commit signoff
 - `has_wiki = false`, `has_projects = false`, `has_issues = true`
 - Private vulnerability reporting enabled
