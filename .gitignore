@@ -28,3 +28,6 @@ bootstrap/*.local.json
 tfplan
 *.tfplan
 plan.out
+
+# Claude Code local settings can contain machine-specific permissions and secrets.
+**/.claude/settings.local.json
